@@ -71,6 +71,27 @@ class DataIO:
 
             reps += 1
 
+    @staticmethod
+    def gaussianNorm(df, mean = None, std = None):
+        """Normalize dataframe columns by z-score (mean 0, stddev 1) if params unspecified.
+        Else, center by the given mean & normalize by the given stddev."""
+        mean = mean if isinstance(mean, pd.Series) else arr.mean(axis=0)
+        std = std if isinstance(std, pd.Series) else arr.std(axis=0)
+        return (arr - mean)/std
+
+    @staticmethod
+    def minMax(df):
+        """Center dataframe columns to be within [-1, 1]"""
+        max_, min_ = df.max(axis=0), df.min(axis=0)
+        midrange = (max_ + min_)/2
+        half_range = (max_ - min_)/2
+        return (df - midrange)/half_range
+
+    @staticmethod
+    def centerMeanAndNormalize(df):
+        """Center column mean to 0 and scale range to [-1,1]"""
+        return minMax(df - df.mean(axis=0))
+
 
 def splitTrainValidate(df, perc_training = 0.8):
     """Split dataframe into training and validation sets based on given %"""
@@ -199,7 +220,16 @@ MAX CROSS-VAL ACCURACY: {}
     #     accuracy, cost = session.run([self.accuracy, self.cost], feed_dict)
     #     return (accuracy, cost)
 
-    def buildGraph(self):#, cost_fn = crossEntropy()):
+    @staticmethod
+    def crossEntropy(observed, actual):
+        """Cross-entropy between two equally sized tensors
+
+        Returns: tensorflow scalar (i.e. averaged over minibatch)
+        """
+        # bound values by clipping to avoid nan
+        return -tf.reduce_mean(actual*tf.log(tf.clip_by_value(observed, 1e-10, 1.0)))
+
+    def buildGraph(self, cost_fn = crossEntropy):
         """Build tensorflow graph representing neural net with desired architecture
         and training ops for feed-forward & back-prop"""
         x_in = tf.placeholder(tf.float32, shape=[None, # None dim enables variable sized batches
@@ -250,15 +280,6 @@ MAX CROSS-VAL ACCURACY: {}
                                                    tf.argmax(y, 1)), tf.float32))
 
         return (x_in, y, dropout, accuracy, cost, train_op)
-
-    @staticmethod
-    def crossEntropy(observed, actual):
-        """Cross-entropy between two equally sized tensors
-
-        Returns: tensorflow scalar (i.e. averaged over minibatch)
-        """
-        # bound values by clipping to avoid nan
-        return -tf.reduce_mean(actual*tf.log(tf.clip_by_value(observed, 1e-10, 1.0)))
 
 
 ########################################################################################
@@ -410,7 +431,8 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
     #         param.to_csv(f)
 
     # preprocess features
-    data = {k: DataIO(dataset, target_label, lambda x: gaussianNorm(x, *params))
+    data = {k: DataIO(dataset, target_label,
+                      lambda x: DataIO.gaussianNorm(x, *params), [-10, 10])
             for k, dataset in (('train', train), ('validate', validate))}
     # for k, v in data.iteritems():
     #     with open(OUTFILES[k], 'w') as f:
