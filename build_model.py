@@ -221,8 +221,10 @@ MAX CROSS-VAL ACCURACY (at epoch {}): {}
         def wbVars(nodes_in, nodes_out, scope):
             """Helper to initialize trainable weights and biases as tf.Variables"""
             initial_w = tf.truncated_normal([nodes_in, nodes_out],
+                                            #stddev = (2/nodes_in)**0.5)
                                             stddev = nodes_in**-0.5)
             initial_b = tf.random_normal([nodes_out])
+            #initial_b = tf.zeros([nodes_out]) # TODO: test me!
             with tf.name_scope(scope):
                 return (tf.Variable(initial_w, trainable=True, name='weights'),
                         tf.Variable(initial_b, trainable=True, name='biases'))
@@ -233,21 +235,18 @@ MAX CROSS-VAL ACCURACY (at epoch {}): {}
         dropout = tf.placeholder(tf.float32, name='dropout')
         for i, layer in enumerate(self.layers[1:]):
             w, b = ws_and_bs[i]
-            # add dropout to hidden weights but not input
-            if self.hyperparams['dropout'] and i > 0:
-                w = tf.nn.dropout(w, dropout)
+            # add dropout to hidden weights but not input layer
+            w = tf.nn.dropout(w, dropout) if i>0 else w
             xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w, b)))
 
         # cost & training
         y_out = xs[-1]
         y = tf.placeholder(tf.float32, shape=[None, 2], name='y')
 
-        cost = self.crossEntropy(y_out, y) # TODO: cost_fn with default ?
-
-        if self.hyperparams['lambda_l2_reg']:
-            lmbda = tf.constant(self.hyperparams['lambda_l2_reg'], tf.float32)
-            l2_loss = tf.add_n([tf.nn.l2_loss(w) for w, _ in ws_and_bs])
-            cost += tf.mul(lmbda, l2_loss, name='l2_regularization')
+        cost = Model.crossEntropy(y_out, y) # TODO: cost_fn with default ?
+        lmbda = tf.constant(self.hyperparams['lambda_l2_reg'], tf.float32)
+        l2_loss = tf.add_n([tf.nn.l2_loss(w) for w, _ in ws_and_bs])
+        cost += tf.mul(lmbda, l2_loss, name='l2_regularization')
 
         train_op = tf.train.AdamOptimizer(self.hyperparams['learning_rate']).minimize(cost)
         #tvars = tf.trainable_variables()
@@ -255,9 +254,6 @@ MAX CROSS-VAL ACCURACY (at epoch {}): {}
         # TODO: cap gradients ? learning rate decay ?
         #train_op = tf.train.GradientDescentOptimizer(self.hyperparams['learning_rate'])\
                            #.apply_gradients(zip(grads, tvars))
-
-        #correct = tf.reduce_sum(tf.cast(tf.equal(tf.argmax(y_out, 1),
-                                                 #tf.argmax(y, 1)), tf.uint32))
         accuracy = tf.reduce_mean(tf.cast(tf.equal(tf.argmax(y_out, 1),
                                                    tf.argmax(y, 1)), tf.float32))
 
