@@ -106,70 +106,52 @@ def encodeYs(df, target_str):
     """
     return pd.get_dummies(df, columns=[target_str])
 
-def gaussianNorm(arr, mean = None, std = None):
-    """Normalize dataframe columns by z-score (mean 0, STD 1) if no mean/stddev specified.
-    Else, center by the given mean and normalize by the given stddev."""
-    mean = mean if isinstance(mean, pd.Series) else arr.mean(axis=0)
-    std = std if isinstance(std, pd.Series) else arr.std(axis=0)
-    return (arr - mean)/std
-
-def minMax(arr):
-    """Center dataframe or array columns to be within [-1, 1]"""
-    max_, min_ = arr.max(axis=0), arr.min(axis=0)
-    midrange = (max_ + min_)/2
-    half_range = (max_ - min_)/2
-    return (arr - midrange)/half_range
-
-def centerMeanAndNormalize(arr):
-    """Center mean to 0 and scale range to [-1,1]"""
-    return minMax(arr - arr.mean(axis=0))
 
 ########################################################################################
 
 # ARTIFICIAL NEURAL NET
 
 class Model():
-    def __init__(self, data_dict, hyperparams, layers, cross_validate=False, verbose=False):
+    def __init__(self, hyperparams, layers):
         """Artificial neural net with architecture according to given layers,
         training according to given hyperparameters.
 
-        Args: data_dict (dictionary with 'train' (and, optionally, 'validate') key/s
-        and corresponding DataIO object/s
-
-        hyperparams (dictionary of model hyperparameters)
-
-        layers (dictionary of Layer objects)
-
-        cross_validate (bool)
+        Args: hyperparams (dictionary of model hyperparameters)
+              layers (dictionary of Layer objects)
         """
-        if 'validate' not in data_dict.iterkeys() and cross_validate:
-            raise ValueError('Must include validation dataset in order to cross-validate')
         self.layers = layers
-        self.cross_validate = cross_validate
-        self.verbose = verbose
 
-        self.hyperparams = hyperparams
         # turn off dropout, l2 reg, max epochs if not specified
         DEFAULTS = {'dropout': 1, 'lambda_l2_reg': 0, 'epochs': np.inf}
-        #unspecified_k = DEFAULTS.viewkeys() - self.hyperparams.viewkeys()
-        unspecified = ((k, v) for k, v in DEFAULTS.iteritems()
-                       if k not in self.hyperparams.iterkeys())
-        self.hyperparams.update(unspecified)
-
-        n_train = data_dict['train'].len_
-        self.iters_per_epoch = (n_train // self.hyperparams['n_minibatch']) + \
-                               (n_train % self.hyperparams['n_minibatch'] != 0)
-
-        stream_kwargs = {'train': {'batchsize': self.hyperparams['n_minibatch'],
-                                   'max_iter': self.hyperparams['epochs']},
-                         'validate': dict()}
-        self.datastream = {k: v.stream(**stream_kwargs[k])
-                           for k,v in data_dict.iteritems()}
+        self.hyperparams = DEFAULTS
+        self.hyperparams.update(**hyperparams)
 
         self.x, self.y, self.dropout, self.accuracy, self.cost, self.train_op = self.buildGraph()
 
-    def train(self):
-        """Train on training data and cross-validate with accuracy of validation data at every epoch"""
+    def streamData(self, data_dict):
+        stream_kwargs = {'train': {'batchsize': self.hyperparams['n_minibatch'],
+                                   'max_iter': self.hyperparams['epochs']},
+                         'validate': dict()}
+        return {k: v.stream(**stream_kwargs[k]) for k,v in data_dict.iteritems()}
+
+    def train(self, data_dict, save_best = False, verbose = False):
+        """Train on training data and, if supplied, cross-validate accuracy of
+        validation data at every epoch.
+
+        Args: data_dict (dictionary with 'train' (&, optionally, 'validate') key/s
+                 + corresponding DataIO object/s)
+        """
+        cross_validate = ('validate' in data_dict.iterkeys())
+
+        n_train = data_dict['train'].len_
+        iters_per_epoch = (n_train // self.hyperparams['n_minibatch']) + \
+                          ((n_train % self.hyperparams['n_minibatch']) != 0)
+
+        datastream = self.streamData(data_dict)
+
+        if save_best:
+            saver = tf.train.saver()
+
         with tf.Session() as sesh:
             sesh.run(tf.initialize_all_variables())
             # TODO: logger
@@ -177,42 +159,42 @@ class Model():
             epochs = 0
             cross_vals = []
             try:
-                for i, (x, y) in enumerate(self.datastream['train']):
+                for i, (x, y) in enumerate(datastream['train']):
                     feed_dict = {self.x: x, self.y: y,
                                  self.dropout: self.hyperparams['dropout']}
                     accuracy, cost, _ = sesh.run([self.accuracy, self.cost,
                                                   self.train_op], feed_dict)
 
-                    if self.verbose and i % 20 == 0:
-                        print 'cost at iteration {}: {}'.format(i.cost)
+                    if verbose and i % 20 == 0:
+                        print 'cost at iteration {}: {}'.format(i, cost)
                         print 'accuracy: {}'.format(accuracy)
 
-                    if self.cross_validate and i % self.iters_per_epoch == 0:
-                        x, y = self.datastream['validate'].next()
+                    if cross_validate and i % iters_per_epoch == 0:
+                        x, y = datastream['validate'].next()
                         feed_dict = {self.x: x, self.y: y,
                                      self.dropout: 1.0} # keep prob 1
                         accuracy = sesh.run(self.accuracy, feed_dict)
                         cross_vals.append(accuracy)
                         epochs += 1
 
-                        if self.verbose and accuracy > 0.85:
+                        if verbose:# and accuracy > 0.85:
                             print 'CROSS VAL accuracy at epoch {}: {}'.format(epochs, accuracy)
             except(KeyboardInterrupt):
                 pass
             finally:
                 # TODO: close logger
-                if self.cross_validate:
-                    self.max_cross_val_accuracy = max(cross_vals)
-
-                    if self.verbose:
+                if cross_vals:
+                    i, max_ = max(enumerate(cross_vals), key = lambda x: x[1])
+                    self.max_cross_val_accuracy = max_
+                    if verbose:
                         print """
 HYPERPARAMS: {}
 LAYERS:
     {}
-MAX CROSS-VAL ACCURACY: {}
+MAX CROSS-VAL ACCURACY (at epoch {}): {}
                         """.format(self.hyperparams,
-                                '\n    '.join(str(l) for l in self.layers),
-                                accuracies)
+                                   '\n    '.join(str(l) for l in self.layers),
+                                   i+1, self.max_cross_val_accuracy)
 
     # def _validate(self, session):
     #     x, y = self.datastream['validate'].next()
@@ -231,7 +213,7 @@ MAX CROSS-VAL ACCURACY: {}
 
     def buildGraph(self, cost_fn = crossEntropy):
         """Build tensorflow graph representing neural net with desired architecture
-        and training ops for feed-forward & back-prop"""
+        and training ops for feed-forward & back-prop to minimize given cost function"""
         x_in = tf.placeholder(tf.float32, shape=[None, # None dim enables variable sized batches
                                                  self.layers[0].nodes], name='x')
         xs = [x_in]
@@ -447,13 +429,11 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
         architecture[0] = architecture[0]._replace(nodes = data['train'].n_features)
         architecture[-1] = architecture[-1]._replace(nodes = len(targets))
 
-        #model = Model(data, hyperparams, architecture, cross_validate=True) # TODO: outside of loop ? so reset datastream
+        model = Model(hyperparams, architecture)
         accuracies = []
         for i in xrange(3):
-            model = Model(data, hyperparams, architecture, cross_validate=True)
-            model.train()
+            model.train(data)
             accuracies.append(model.max_cross_val_accuracy)
-
         print """
 HYPERPARAMS: {}
 LAYERS:
@@ -471,12 +451,19 @@ MAX CROSS-VAL ACCURACIES: {}
             best_model = (hyperparams, architecture)
 
     hyperparams, architecture = best_model
+
     print """
 BEST HYPERPARAMS!... {}
 BEST ARCHITECTURE!... {}
-    """.format(hyperparams, architecture)
-    #model = Model(data, hyperparams, architecture, cross_validate=True)
-    #model.train()
+median = {}
+mean = {}
+    """.format(hyperparams, architecture, record_cross_val_acc, acc_mean)
+
+    hyperparams['epochs'] = 300
+    #model = Model(hyperparams, architecture)
+    #for i in xrange(5):
+        #model.train(data, save_best = True)
+    # TODO: log performance to performance.txt
 
 ########################################################################################
 
