@@ -11,30 +11,20 @@ import pandas as pd
 # DATA I/O
 
 class DataIO:
-    def __init__(self, df, target_label, norm_fn = None, clip_by = None):
-        """Data object with functions for preprocessing and streaming
+    def __init__(self, df, target_label, norm_fn = None, clip_to = None):
+        """ Data object with functions for preprocessing and streaming
 
         Args: df (pandas dataframe)
-
-        target_label (string corresponding to target label)
-
-        norm_fn (optional, function for features normalization)
-
-        clip_by (optional, iterable of max/min values for clipping)
+              target_label (string corresponding to target label)
+              norm_fn (optional, function for features normalization)
+              clip_to (optional, iterable of max/min values for clipping)
         """
         self.regex = {'features': '^[^({})]'.format(target_label),
                       'targets': '^{}'.format(target_label)}
 
         self.df = self.normalizeXs(df, norm_fn) if norm_fn else df
-        if clip_by:
-            self.df = self.df.clip(*clip_by) # TODO: check for >1 so as not to affect targets ?
-
-    def splitXY(self, df = None):
-        """Split dataframe into dataframes representing features and targets"""
-        # defaults to entire self.df
-        df = df if isinstance(df, pd.DataFrame) else self.df
-        return tuple(df.filter(regex = self.regex[k])
-                     for k in ('features', 'targets'))
+        if clip_to:
+            self.df = self.df.clip(*clip_to) # TODO: check for >1 so as not to affect targets ?
 
     @property
     def len_(self):
@@ -45,17 +35,22 @@ class DataIO:
         x, _ = self.splitXY()
         return x.shape[1]
 
+    def splitXY(self, df = None):
+        """Split given dataframe into dataframes representing features & targets"""
+        df = df if isinstance(df, pd.DataFrame) else self.df # <-- default
+        return tuple(df.filter(regex = self.regex[k])
+                     for k in ('features', 'targets'))
+
     def normalizeXs(self, df, norm_fn):
         """Normalize features by given function"""
         xs, ys = self.splitXY(df)
-        #xs_normed = xs.apply(norm_fn, axis=0)
         return pd.concat([norm_fn(xs), ys], axis=1)
 
     def stream(self, batchsize = None, max_iter = np.inf):
         """Generator of minibatches of given batch size, optionally
         limited by maximum numer of iterations over dataset (=epochs).
 
-        Yields: (x,y) tuples of np arrays representing features and targets
+        Yields: (x,y) tuples of numpy arrays representing features & targets
         """
         batchsize = self.len_ if not batchsize else batchsize
         reps = 0
@@ -275,15 +270,15 @@ Layer = namedtuple('Layer', ('name', 'nodes', 'activation'))
 def combinatorialGridSearch(d_hyperparam_grid, d_layer_grid):
     """
     Args: d_hyperparam_grid (dictionary with hyperparameter names (strings)
-    as keys and corresponding lists of potential settings as values)
-
-    d_layer_grid (dictionary with the following items...
-    'activation': list of potential activation functions
-    'hidden_nodes': list of lists of potential hidden layer architecture,
-    i.e. nodes per layer)
+            as keys + corresponding lists of settings as values)
+          d_layer_grid (dictionary with the following items...
+            'activation': list of potential activation functions, &
+            'hidden_nodes': list of lists of hidden layer architectures
+            i.e. nodes per layer)
     """
     DEFAULT = {'n_minibatch': 100,
                'epochs': 200}
+
     def merge_with_default(new_params):
         """Update DEFAULT dict with passed hyperparams.
         Any DEFAULT keys duplicated by new_params will be replaced.
@@ -325,25 +320,27 @@ def combinatorialGridSearch(d_hyperparam_grid, d_layer_grid):
 
 TRAINING_DATA = './assignment/train_potus_by_county.csv'
 
+TARGET_LABEL = 'Winner'
+
 OUTFILES = {'targets': './targets.csv',
             'preprocessing_means': './preprocessing_means.csv',
             'preprocessing_stddevs': './preprocessing_stddevs.csv',
             'train': './data_training_cleaned.csv',
-            'validate': './data_validation_cleaned.csv'}
+            'validate': './data_validation_cleaned.csv',
+            'model_binary': './model_bin',
+            'performance': './performance.txt'}
 
-TARGET_LABEL = 'Winner'
-
-HYPERPARAM_GRID = {'learning_rate': [0.01, 0.05, 0.1],
+HYPERPARAM_GRID = {'learning_rate': [0.05, 0.1],#0.05, 0.1],
                    # keep probability for dropout (1 for none)
-                   'dropout': [0.3, 0.5, 0.7, 1],
-                   # lamba for L2 regularization (0 for none)
-                   'lambda_l2_reg': [0, 1E-5, 1E-4, 1E-3],
+                   'dropout': [0.5, 0.7],#, 1],#[0.3, 0.5, 0.7, 1],
+                   # lambda for L2 regularization (0 for none)
+                   'lambda_l2_reg': [1E-4, 1E-3],#[0, 1E-5, 1E-4, 1E-3],
                    'n_minibatch': [100],
-                   'epochs': [200]}
+                   'epochs': [100]}
 
-HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu, tf.nn.sigmoid, tf.nn.tanh],
+HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu],#, tf.nn.sigmoid, tf.nn.tanh],
                      'hidden_nodes': [[10],
-                                      [10, 7],
+                                      #[10, 7],
                                       [10, 10],
                                       [10, 7, 7]]}
 
@@ -405,7 +402,7 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
     df = encodeYs(df, target_label)
     train, validate = splitTrainValidate(df, perc_training=0.8)
 
-    # extract raw mean, stddev from test set to use for all preprocessing
+    # extract raw features mean, stddev from test set to use for all preprocessing
     raw_x, _ = DataIO(train, target_label).splitXY()
     params = (raw_x.mean(axis=0), raw_x.std(axis=0))
     # for k, param in zip(('preprocessing_means', 'preprocessing_stddevs'), params):
