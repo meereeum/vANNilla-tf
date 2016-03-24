@@ -200,6 +200,12 @@ class Model():
 
         Args: data_dict (dictionary with 'train' (&, optionally, 'validate') key/s
                  + corresponding DataIO object/s)
+              verbose (optional bool for monitoring cost/accuracy)
+              save_best (optional bool to save model/s with highest cross-validation
+                accuracy to disk) # TODO: best ?
+              outfile (optional path/to/file for model checkpoints)
+              log_perf (optional bool to save performance predictions to file)
+              outfile_perf (optional path/to/file for model performance values)
         """
         cross_validate = ('validate' in data_dict.iterkeys())
 
@@ -210,7 +216,7 @@ class Model():
         datastream = self.streamData(data_dict)
 
         if save_best:
-            saver = tf.train.saver()
+            saver = tf.train.saver() # defaults to saving max most recent 5 checkpoints
 
         with tf.Session() as sesh:
             sesh.run(tf.initialize_all_variables())
@@ -230,14 +236,23 @@ class Model():
                         print 'accuracy: {}'.format(accuracy)
 
                     if cross_validate and i % iters_per_epoch == 0:
+                        epochs += 1
                         x, y = datastream['validate'].next()
                         feed_dict = {self.x: x, self.y: y,
                                      self.dropout: 1.0} # keep prob 1
                         accuracy = sesh.run(self.accuracy, feed_dict)
-                        cross_vals.append(accuracy)
-                        epochs += 1
 
-                        if verbose:# and accuracy > 0.85:
+                        if save_best and accuracy > max(cross_vals):
+                            saver.save(sesh, outfile, global_step = epochs)
+                            if log_perf:
+                                with open(outfile_perf, 'a') as f:
+                                    performance = ['{}_{}'.format(outfile, epochs),
+                                                   accuracy]
+                                    f.write()
+
+                        cross_vals.append(accuracy)
+
+                        if verbose:
                             print 'CROSS VAL accuracy at epoch {}: {}'.format(epochs, accuracy)
             except(KeyboardInterrupt):
                 pass
@@ -463,9 +478,10 @@ mean = {}
     """.format(hyperparams, architecture, record_cross_val_acc, acc_mean)
 
     hyperparams['epochs'] = 300
-    #model = Model(hyperparams, architecture)
-    #for i in xrange(5):
-        #model.train(data, save_best = True)
+    model = Model(hyperparams, architecture)
+    for i in xrange(5):
+        model.train(data, save_best = True, outfile =
+                    '{}_{}'.format(OUTFILES['model_binary'], i))
     # TODO: log performance to performance.txt
 
 ########################################################################################
