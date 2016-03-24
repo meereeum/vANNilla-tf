@@ -11,7 +11,7 @@ import pandas as pd
 # DATA I/O
 
 class DataIO:
-    def __init__(self, df, target_label, norm_fn = None, clip_to = None):
+    def __init__(self, df, target_label, norm_fn = None, clip_to = None, k = 10):
         """ Data object with functions for preprocessing and streaming
 
         Args: df (pandas dataframe)
@@ -22,9 +22,13 @@ class DataIO:
         self.regex = {'features': '^[^({})]'.format(target_label),
                       'targets': '^{}'.format(target_label)}
 
+        self.encodeYs(target_label)
+
         self.df = self.normalizeXs(df, norm_fn) if norm_fn else df
         if clip_to:
             self.df = self.df.clip(*clip_to) # TODO: check for >1 so as not to affect targets ?
+
+        self.k = k
 
     @property
     def len_(self):
@@ -34,6 +38,24 @@ class DataIO:
     def n_features(self):
         x, _ = self.splitXY()
         return x.shape[1]
+
+    def kFoldCrossVal(self):
+        # shuffle
+        df = self.df.sample(frac=1)
+        # split into k pieces
+        df_arr = [ df[i::self.k] for i in xrange(self.k)]
+        assert len(df_arr) == self.k
+
+        for i, val in enumerate(df_array):
+            #validate = pd.DataFrame(df_array[i])
+            validate = df_array[i]
+            assert type(validate) == pd.DataFrame
+            print 'validate', validate
+
+            train_list = df_array[:i] + df_array[i+1:]
+            print 'training', train_list
+
+            return (train_list, validate)
 
     def splitXY(self, df = None):
         """Split given dataframe into dataframes representing features & targets"""
@@ -46,23 +68,30 @@ class DataIO:
         xs, ys = self.splitXY(df)
         return pd.concat([norm_fn(xs), ys], axis=1)
 
-    def stream(self, batchsize = None, max_iter = np.inf):
+    def encodeYs(self, target_str):
+        """Encode categorical values (labeled with given target_str) as one-hots
+
+        Returns: dataframe including binary {0, 1} columns for unique labels
+        """
+        return pd.get_dummies(self.df, columns=[target_str])
+
+    @staticmethod
+    def stream(df, batchsize = None, max_iter = np.inf):
         """Generator of minibatches of given batch size, optionally
         limited by maximum numer of iterations over dataset (=epochs).
 
         Yields: (x,y) tuples of numpy arrays representing features & targets
         """
-        batchsize = self.len_ if not batchsize else batchsize
+        len_ = len(df)
+        batchsize = len_ if not batchsize else batchsize
         reps = 0
         while True:
             if reps <= max_iter:
-                # shuffle
-                self.df = self.df.sample(frac=1).reset_index(drop=True)
-                for i in xrange(0, self.len_, batchsize):
+                for i in xrange(0, df.len_, batchsize):
                     try:
-                        batched = self.df[i:i+batchsize]
+                        batched = df[i:i+batchsize]
                     except(IndexError):
-                        batched = self.df[i:]
+                        batched = df[i:]
                     finally:
                         x, y = self.splitXY(batched)
                         yield (x.values, y.values)
@@ -99,12 +128,6 @@ def splitTrainValidate(df, perc_training = 0.8):
     validate = df.drop(train.index)
     return (train, validate)
 
-def encodeYs(df, target_str):
-    """Encode categorical values (labeled with given target_str) as one-hots
-
-    Returns: dataframe including binary {0, 1} columns for unique labels
-    """
-    return pd.get_dummies(df, columns=[target_str])
 
 
 ########################################################################################
@@ -185,14 +208,7 @@ class Model():
 
         return (x_in, y, dropout, accuracy, cost, train_op)
 
-    def streamData(self, data_dict):
-        """Dictionary of DataIO objects --> dictionary of generators of (x, y) np arrays"""
-        kwargs = {'train': {'batchsize': self.hyperparams['n_minibatch'],
-                            'max_iter': self.hyperparams['epochs']},
-                  'validate': dict()}
-        return {k: v.stream(**kwargs[k]) for k, v in data_dict.iteritems()}
-
-    def train(self, data_dict, verbose = False,
+    def train(self, data, verbose = False,
               save_best = False, outfile = './model_chkpt',
               log_perf = False, outfile_perf = './performance.txt'):
         """Train on training data and, if supplied, cross-validate accuracy of
@@ -213,7 +229,7 @@ class Model():
         iters_per_epoch = (n_train // self.hyperparams['n_minibatch']) + \
                           ((n_train % self.hyperparams['n_minibatch']) != 0)
 
-        datastream = self.streamData(data_dict)
+        train_list, validate = DataIO.kFoldCrossVal(data)
 
         if save_best:
             saver = tf.train.saver() # defaults to saving max most recent 5 checkpoints
@@ -418,23 +434,14 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
     # with open(OUTFILES['targets'], 'w') as f:
     #     f.write(','.join(targets))
 
-    df = encodeYs(df, target_label)
-    train, validate = splitTrainValidate(df, perc_training=0.8)
+    # preprocess features
+    data = DataIO(train, target_label, gaussianNorm, [-10,10], k = 10)
 
     # extract raw features mean, stddev from test set to use for all preprocessing
-    raw_x, _ = DataIO(train, target_label).splitXY()
-    params = (raw_x.mean(axis=0), raw_x.std(axis=0))
+    params = (data.mean(axis=0), data.std(axis=0))
     # for k, param in zip(('preprocessing_means', 'preprocessing_stddevs'), params):
     #     with open(OUTFILES[k], 'w') as f:
     #         param.to_csv(f)
-
-    # preprocess features
-    data = {k: DataIO(dataset, target_label,
-                      lambda x: DataIO.gaussianNorm(x, *params), [-10, 10])
-            for k, dataset in (('train', train), ('validate', validate))}
-    # for k, v in data.iteritems():
-    #     with open(OUTFILES[k], 'w') as f:
-    #         v.df.to_csv(f, index=False)
 
     combos = combinatorialGridSearch(d_hyperparams, d_architectures)
 
