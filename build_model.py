@@ -170,8 +170,8 @@ class Model():
         for i, layer in enumerate(self.layers[1:]):
             w, b = ws_and_bs[i]
             # add dropout to hidden weights but not input layer
-            w = tf.nn.dropout(w, dropout) if i > 0 else w
-            xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w, b)))
+            w_ = tf.nn.dropout(w, dropout) if i > 0 else w #TODO: leave ??
+            xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w_, b)))
 
         # cost & training
         y_out = xs[-1]
@@ -193,7 +193,7 @@ class Model():
 
         return (x_in, y, dropout, accuracy, cost, train_op)
 
-    def train(self, data, verbose = False,
+    def train(self, data, k = 10, verbose = False,
               save_best = False, outfile = './model_chkpt',
               log_perf = False, outfile_perf = './performance.txt'):
         """Train on training data and, if supplied, cross-validate accuracy of
@@ -208,75 +208,68 @@ class Model():
               log_perf (optional bool to save performance predictions to file)
               outfile_perf (optional path/to/file for model performance values)
         """
-        cross_validate = ('validate' in data_dict.iterkeys())
-
-        n_train = data_dict['train'].len_
-        iters_per_epoch = (n_train // self.hyperparams['n_minibatch']) + \
-                          ((n_train % self.hyperparams['n_minibatch']) != 0)
-
-        train_list, validate = DataIO.kFoldCrossVal(data)
-
-        if save_best:
-            saver = tf.train.saver() # defaults to saving max most recent 5 checkpoints
+        #n_train = data_dict['train'].len_
+        #iters_per_epoch = (n_train // self.hyperparams['n_minibatch']) + \
+                          #((n_train % self.hyperparams['n_minibatch']) != 0)
 
         with tf.Session() as sesh:
             sesh.run(tf.initialize_all_variables())
-            # TODO: logger
 
             epochs = 0
-            cross_vals = []
-            try:
-                for i, (x, y) in enumerate(datastream['train']):
-                    feed_dict = {self.x: x, self.y: y,
-                                 self.dropout: self.hyperparams['dropout']}
-                    accuracy, cost, _ = sesh.run([self.accuracy, self.cost,
-                                                  self.train_op], feed_dict)
+            avg_cross_vals = []
+            while epochs <= self.hyperparams['epochs']:
+                try:
+                    cross_vals = []
+                    for train, validate in data.kFoldCrossVal(k):
+                        # train on (k-1) folds
+                        for i, (x, y) in enumerate(
+                                data.stream(train, batchsize =
+                                            self.hyperparams['n_minibatch'],
+                                            max_iter = 1)):
+                            feed_dict = {self.x: x, self.y: y,
+                                        self.dropout: self.hyperparams['dropout']}
+                            accuracy, cost, _ = sesh.run([self.accuracy, self.cost,
+                                                        self.train_op], feed_dict)
 
-                    if verbose and i % 20 == 0:
-                        print 'cost at iteration {}: {}'.format(i, cost)
-                        print 'accuracy: {}'.format(accuracy)
+                            if verbose and i % 50 == 0:
+                                print 'cost at iteration {}: {}'.format(i, cost)
+                                print 'accuracy: {}'.format(accuracy)
 
-                    if cross_validate and i % iters_per_epoch == 0:
-                        epochs += 1
-                        x, y = datastream['validate'].next()
+                        # cross-validate with leftout fold
+                        x, y = data.stream(validate).next()
                         feed_dict = {self.x: x, self.y: y,
-                                     self.dropout: 1.0} # keep prob 1
+                                    self.dropout: 1.0} # keep prob 1
                         accuracy = sesh.run(self.accuracy, feed_dict)
 
-                        if save_best and accuracy > max(cross_vals):
-                            saver.save(sesh, outfile, global_step = epochs)
-                            if log_perf:
-                                with open(outfile_perf, 'a') as f:
-                                    performance = ['{}_{}'.format(outfile, epochs),
-                                                   accuracy]
-                                    f.write()
-
                         cross_vals.append(accuracy)
+                        epochs += 1
 
-                        if verbose:
-                            print 'CROSS VAL accuracy at epoch {}: {}'.format(epochs, accuracy)
-            except(KeyboardInterrupt):
-                pass
-            finally:
-                # TODO: close logger
-                if cross_vals:
-                    i, max_ = max(enumerate(cross_vals), key = lambda x: x[1])
-                    self.max_cross_val_accuracy = max_
+                    avg_acc = np.mean(cross_vals)
+                    avg_cross_vals.append(avg_acc)
                     if verbose:
-                        print """
+                        print 'AVG CROSS VAL accuracy at epoch {}: {}'.format(epochs, avg_acc)
+
+                except(KeyboardInterrupt):
+                    print """
+Epochs: {}
+Current avg cross-val accuracies: {}
+""".format(epochs, avg_cross_vals)
+                    raise
+                finally:
+                    # TODO: close logger
+                    if avg_cross_vals:
+                        i, max_ = max(enumerate(avg_cross_vals), key = lambda x: x[1])
+                        self.max_cross_val_accuracy = max_
+                        if verbose:
+                            print """
 HYPERPARAMS: {}
 LAYERS:
     {}
 MAX CROSS-VAL ACCURACY (at epoch {}): {}
-                        """.format(self.hyperparams,
-                                   '\n    '.join(str(l) for l in self.layers),
-                                   i+1, self.max_cross_val_accuracy)
+                            """.format(self.hyperparams,
+                                       '\n    '.join(str(l) for l in self.layers),
+                                       i+1, max_)
 
-    # def _validate(self, session):
-    #     x, y = self.datastream['validate'].next()
-    #     feed_dict = {self.x: x, self.y: y, self.dropout: 1.0} # keep prob 1
-    #     accuracy, cost = session.run([self.accuracy, self.cost], feed_dict)
-    #     return (accuracy, cost)
 
 
 ########################################################################################
@@ -350,63 +343,22 @@ OUTFILES = {'targets': './targets.csv',
             'model_binary': './model_bin',
             'performance': './performance.txt'}
 
-HYPERPARAM_GRID = {'learning_rate': [0.05, 0.1],#0.05, 0.1],
+HYPERPARAM_GRID = {'learning_rate': [0.01, 0.05, 0.1],
                    # keep probability for dropout (1 for none)
-                   'dropout': [0.5, 0.7],#, 1],#[0.3, 0.5, 0.7, 1],
+                   'dropout': [0.3, 0.5, 0.7, 1],#[0.3, 0.5, 0.7, 1],
                    # lambda for L2 regularization (0 for none)
-                   'lambda_l2_reg': [1E-4, 1E-3],#[0, 1E-5, 1E-4, 1E-3],
+                   'lambda_l2_reg': [0, 1E-5, 1E-4, 1E-3],#[0, 1E-5, 1E-4, 1E-3],
                    'n_minibatch': [100],
                    'epochs': [100]}
 
 HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu],#, tf.nn.sigmoid, tf.nn.tanh],
                      'hidden_nodes': [[10],
-                                      #[10, 7],
+                                      [10, 7],
                                       [10, 10],
                                       [10, 7, 7]]}
 
-# HYPERPARAMS = {'learning_rate': 0.01,
-#                'n_minibatch': 100,
-#                'dropout': 0.5, # keep probability for dropout (1 for none)
-#                'lambda_l2_reg': 0.001, # lamba for L2 regularization (0 for none)
-#                #'epochs': 200}
-#                }
-
-# ARCHITECTURE = [
-#     Layer('input', None, None), # input & output nodes will be sized by data shape
-#     Layer('hidden_1', 10, tf.nn.relu),
-#     Layer('hidden_2', 7, tf.nn.relu),
-#     #Layer('hidden_3', 7, tf.nn.relu),
-#     Layer('output', None, tf.nn.softmax),
-# ]
 
 ########################################################################################
-
-# def doWork(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
-#            hyperparams = HYPERPARAMS, architecture = ARCHITECTURE):
-#     df = pd.read_csv(file_in)
-#     assert sum(df.isnull().any()) == False
-
-#     # record categorical targets for decoding test set
-#     targets = list(pd.get_dummies(df[target_label]))
-#     with open(OUTFILES['targets'], 'w') as f:
-#         f.write(','.join(targets))
-
-#     df = encodeYs(df, target_label)
-#     train, validate = splitTrainValidate(df, perc_training=0.8)
-
-#     data = {k: DataIO(df, target_label, gaussianNorm)#, [-5.0,5.0])
-#             for k, df in (('train', train), ('validate', validate))}
-
-#     # for k, v in data.iteritems():
-#     #     with open(OUTFILES[k], 'w') as f:
-#     #         f.write(v.df.to_csv(index=False))
-
-#     architecture[0] = architecture[0]._replace(nodes = data['train'].n_features)
-#     architecture[-1] = architecture[-1]._replace(nodes = len(targets))
-
-#     model = Model(data, hyperparams, architecture, cross_validate = True)
-#     model.train()
-
 
 def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
                          d_hyperparams = HYPERPARAM_GRID,
@@ -472,8 +424,7 @@ mean = {}
     hyperparams['epochs'] = 300
     model = Model(hyperparams, architecture)
     for i in xrange(5):
-        model.train(data, save_best = True, outfile =
-                    '{}_{}'.format(OUTFILES['model_binary'], i))
+        model.train(data)
     # TODO: log performance to performance.txt
 
 ########################################################################################
