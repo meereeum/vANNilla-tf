@@ -11,7 +11,7 @@ import pandas as pd
 # DATA I/O
 
 class DataIO:
-    def __init__(self, df, target_label, norm_fn = None, clip_to = None, k = 10):
+    def __init__(self, df, target_label, norm_fn = None, clip_to = None):
         """ Data object with functions for preprocessing and streaming
 
         Args: df (pandas dataframe)
@@ -22,13 +22,10 @@ class DataIO:
         self.regex = {'features': '^[^({})]'.format(target_label),
                       'targets': '^{}'.format(target_label)}
 
-        self.encodeYs(target_label)
-
         self.df = self.normalizeXs(df, norm_fn) if norm_fn else df
+        self.df = self.encodeYs(target_label)
         if clip_to:
             self.df = self.df.clip(*clip_to) # TODO: check for >1 so as not to affect targets ?
-
-        self.k = k
 
     @property
     def len_(self):
@@ -38,24 +35,6 @@ class DataIO:
     def n_features(self):
         x, _ = self.splitXY()
         return x.shape[1]
-
-    def kFoldCrossVal(self):
-        # shuffle
-        df = self.df.sample(frac=1)
-        # split into k pieces
-        df_arr = [ df[i::self.k] for i in xrange(self.k)]
-        assert len(df_arr) == self.k
-
-        for i, val in enumerate(df_array):
-            #validate = pd.DataFrame(df_array[i])
-            validate = df_array[i]
-            assert type(validate) == pd.DataFrame
-            print 'validate', validate
-
-            train_list = df_array[:i] + df_array[i+1:]
-            print 'training', train_list
-
-            return (train_list, validate)
 
     def splitXY(self, df = None):
         """Split given dataframe into dataframes representing features & targets"""
@@ -75,8 +54,22 @@ class DataIO:
         """
         return pd.get_dummies(self.df, columns=[target_str])
 
-    @staticmethod
-    def stream(df, batchsize = None, max_iter = np.inf):
+    def kFoldCrossVal(self, k):
+        """TODO
+        """
+        # shuffle
+        df = self.df.sample(frac=1)
+        # chunk into k folds
+        indices = [range(i, self.len_, k) for i in xrange(k)]
+        df_arr = [df[i::k] for i in xrange(k)]
+
+        for i, validate in enumerate(df_arr):
+            train_list = df_arr[:i] + df_arr[i+1:]
+            train = pd.concat(train_list, axis=0)
+
+            yield (train, validate)
+
+    def stream(self, df, batchsize = None, max_iter = np.inf):
         """Generator of minibatches of given batch size, optionally
         limited by maximum numer of iterations over dataset (=epochs).
 
@@ -87,7 +80,7 @@ class DataIO:
         reps = 0
         while True:
             if reps <= max_iter:
-                for i in xrange(0, df.len_, batchsize):
+                for i in xrange(0, len_, batchsize):
                     try:
                         batched = df[i:i+batchsize]
                     except(IndexError):
@@ -120,14 +113,6 @@ class DataIO:
     def centerMeanAndNormalize(df):
         """Center dataframe column means to 0 and scale range to [-1,1]"""
         return minMax(df - df.mean(axis=0))
-
-
-def splitTrainValidate(df, perc_training = 0.8):
-    """Split dataframe into training & validation sets based on given %"""
-    train = df.sample(frac=perc_training)#, random_state=200)
-    validate = df.drop(train.index)
-    return (train, validate)
-
 
 
 ########################################################################################
@@ -435,10 +420,10 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
     #     f.write(','.join(targets))
 
     # preprocess features
-    data = DataIO(train, target_label, gaussianNorm, [-10,10], k = 10)
+    data = DataIO(df, target_label, DataIO.gaussianNorm, [-10,10])
 
     # extract raw features mean, stddev from test set to use for all preprocessing
-    params = (data.mean(axis=0), data.std(axis=0))
+    params = (data.df.mean(axis=0), data.df.std(axis=0))
     # for k, param in zip(('preprocessing_means', 'preprocessing_stddevs'), params):
     #     with open(OUTFILES[k], 'w') as f:
     #         param.to_csv(f)
@@ -450,7 +435,7 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
 
     # tune hyperparameters, architecture
     for hyperparams, architecture in combos:
-        architecture[0] = architecture[0]._replace(nodes = data['train'].n_features)
+        architecture[0] = architecture[0]._replace(nodes = data.n_features)
         architecture[-1] = architecture[-1]._replace(nodes = len(targets))
 
         model = Model(hyperparams, architecture)
