@@ -60,13 +60,14 @@ class DataIO:
         # shuffle
         df = self.df.sample(frac=1)
         # chunk into k folds
-        indices = [range(i, self.len_, k) for i in xrange(k)]
+        #fold_idxs = [range(i, self.len_, k) for i in xrange(k)]
         df_arr = [df[i::k] for i in xrange(k)]
 
         for i, validate in enumerate(df_arr):
             train_list = df_arr[:i] + df_arr[i+1:]
             train = pd.concat(train_list, axis=0)
 
+            assert len(train) + len(validate) ==  len(df)
             yield (train, validate)
 
     def stream(self, df, batchsize = None, max_iter = np.inf):
@@ -193,6 +194,19 @@ class Model():
 
         return (x_in, y, dropout, accuracy, cost, train_op)
 
+    def kFold_train(self, data, k = 10):
+
+        for train, validate in data.kFoldCrossVal(k):
+            avg_cross_vals = []
+            # train on (k-1) folds
+            train_stream = data.stream(train, batchsize = self.hyperparams['n_minibatch'],
+                                       max_iter = self.hyperparams['epochs'])
+            for i, (x, y) in enumerate(
+                    data.stream(train, batchsize =
+                                self.hyperparams['n_minibatch'],
+                                max_iter = 1)):
+
+
     def train(self, data, k = 10, verbose = False,
               save_best = False, outfile = './model_chkpt',
               log_perf = False, outfile_perf = './performance.txt'):
@@ -214,10 +228,9 @@ class Model():
 
         with tf.Session() as sesh:
             sesh.run(tf.initialize_all_variables())
-
+            O
             epochs = 0
-            avg_cross_vals = []
-            while epochs <= self.hyperparams['epochs']:
+            dfams['epochs']:
                 try:
                     cross_vals = []
                     for train, validate in data.kFoldCrossVal(k):
@@ -393,6 +406,7 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
         model = Model(hyperparams, architecture)
 
         accuracies = []
+        data
         for i in xrange(3):
             model.train(data)
             accuracies.append(model.max_cross_val_accuracy)
