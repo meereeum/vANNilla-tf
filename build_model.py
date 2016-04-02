@@ -1,5 +1,7 @@
+from __future__ import division
 import itertools
 from collections import namedtuple
+import sys
 
 import numpy as np
 import tensorflow as tf
@@ -170,8 +172,9 @@ class Model():
         for i, layer in enumerate(self.layers[1:]):
             w, b = ws_and_bs[i]
             # add dropout to hidden weights but not input layer
-            w_ = tf.nn.dropout(w, dropout) if i > 0 else w #TODO: leave ??
-            xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w_, b)))
+            w = tf.nn.dropout(w, dropout) if i > 0 else w #TODO: leave ??
+            #w_ = tf.nn.dropout(w, dropout) if i > 0 else w #TODO: leave ??
+            xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w, b)))
 
         # cost & training
         y_out = xs[-1]
@@ -356,15 +359,15 @@ OUTFILES = {'targets': './targets.csv',
 
 HYPERPARAM_GRID = {'learning_rate': [0.01, 0.05, 0.1],
                    # keep probability for dropout (1 for none)
-                   'dropout': [0.3, 0.5, 0.7, 1],#[0.3, 0.5, 0.7, 1],
+                   'dropout': [0.5, 0.7, 1],#[0.3, 0.5, 0.7, 1],
                    # lambda for L2 regularization (0 for none)
-                   'lambda_l2_reg': [0, 1E-5, 1E-4, 1E-3],#[0, 1E-5, 1E-4, 1E-3],
+                   'lambda_l2_reg': [0, 1E-5, 1E-4],# 1E-3],#[0, 1E-5, 1E-4, 1E-3],
                    'n_minibatch': [100],
                    'epochs': [100]}
 
 HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu],#, tf.nn.sigmoid, tf.nn.tanh],
                      'hidden_nodes': [[10],
-                                      [10, 7],
+                                      #[10, 7],
                                       [10, 10],
                                       [10, 7, 7]]}
 
@@ -383,7 +386,7 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
     #     f.write(','.join(targets))
 
     # preprocess features
-    data = DataIO(df, target_label, DataIO.gaussianNorm, [-10,10])
+    data = DataIO(df, target_label, DataIO.gaussianNorm, [-10, 10])
 
     # extract raw features mean, stddev from test set to use for all preprocessing
     params = (data.df.mean(axis=0), data.df.std(axis=0))
