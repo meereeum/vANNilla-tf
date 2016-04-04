@@ -154,7 +154,8 @@ class Model():
         Returns: tensorflow scalar (i.e. averaged over minibatch)
         """
         # bound values by clipping to avoid nan
-        return -tf.reduce_mean(actual*tf.log(tf.clip_by_value(observed, 1e-10, 1.0)))
+        return -tf.reduce_mean(actual*tf.log(tf.clip_by_value(observed, 1e-10, 1.0)),
+                               name='cross_entropy')
 
     def buildGraph(self):
         """Build tensorflow graph representing neural net with desired architecture +
@@ -181,32 +182,49 @@ class Model():
         for i, layer in enumerate(self.layers[1:]):
             w, b = ws_and_bs[i]
             # add dropout to hidden weights but not input layer
-            w = tf.nn.dropout(w, dropout) if i > 0 else w #TODO: leave ??
+            if i > 0:
+                w = tf.nn.dropout(w, dropout)
+            #w = tf.nn.dropout(w, dropout) if i > 0 else w #TODO: leave ??
             #w_ = tf.nn.dropout(w, dropout) if i > 0 else w #TODO: leave ??
-            xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w, b)))
+            xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w, b),
+                                       name = '{}/activation'.format(
+                                           layer.name)))
 
-        # cost & training
-        y_out = xs[-1]
+        # tf.identity to set explicit name for output node
+        y_out = tf.identity(xs[-1], name='y_out')
         y = tf.placeholder(tf.float32, shape=[None, 2], name='y')
 
-        cost = Model.crossEntropy(y_out, y)
-        lmbda = tf.constant(self.hyperparams['lambda_l2_reg'], tf.float32)
+        # cost & training
+        #cost = Model.crossEntropy(y_out, y)
+        lmbda = tf.constant(self.hyperparams['lambda_l2_reg'], tf.float32,
+                            name='lambda')
         l2_loss = tf.add_n([tf.nn.l2_loss(w) for w, _ in ws_and_bs])
-        cost += tf.mul(lmbda, l2_loss, name='l2_regularization')
+        #l2_reg = tf.mul(lmbda, l2_loss, name='l2_regularization')
+        #cost += tf.mul(lmbda, l2_loss, name='l2_regularization')
+        #total_cost = tf.add(Model.crossEntropy(y_out, y),
+                            #tf.mul(lmbda, l2_loss, name='l2_regularization'))
+        cost = tf.add(Model.crossEntropy(y_out, y),
+                      tf.mul(lmbda, l2_loss, name='l2_regularization'))
 
-        train_op = tf.train.AdamOptimizer(self.hyperparams['learning_rate']).minimize(cost)
+        train_op = tf.train.AdamOptimizer(self.hyperparams['learning_rate'])\
+                                          .minimize(cost)
+                                          #.minimize(total_cost)
         #tvars = tf.trainable_variables()
         #grads = tf.gradients(cost, tvars)
         # TODO: cap gradients ? learning rate decay ?
         #train_op = tf.train.GradientDescentOptimizer(self.hyperparams['learning_rate'])\
                            #.apply_gradients(zip(grads, tvars))
-        accuracy = tf.reduce_mean(tf.cast(tf.equal(tf.argmax(y_out, 1),
-                                                   tf.argmax(y, 1)), tf.float32))
+        predictions = tf.argmax(y_out, 1, name = 'predictions')
+        #accuracy = tf.reduce_mean(tf.cast(tf.equal(tf.argmax(y_out, 1),
+        accuracy = tf.reduce_mean(tf.cast(tf.equal(predictions,
+                                                   tf.argmax(y, 1)), tf.float32),
+                                  name='accuracy')
 
         return (x_in, y, dropout, accuracy, cost, train_op)
 
     def kFoldTrain(self, data, k = 10, verbose = False):
-
+        """TODO
+        """
         self.best_cross_vals = []
         self.best_stopping_epochs = []
 
@@ -327,15 +345,14 @@ def combinatorialGridSearch(d_hyperparam_grid, d_layer_grid):
     hyperparam_tuples = (itertools.izip(itertools.repeat(k),v)
                          for k,v in d_hyperparam_grid.iteritems())
     # all combinatorial hyperparameter settings
-    HYPERPARAMS = (merge_with_default(params) for params in
-                   itertools.product(*hyperparam_tuples))
+    HYPERPARAMS = (merge_with_default(params) for params in itertools.product(*hyperparam_tuples))
 
     max_depth = max(len(layers) for layers in d_layer_grid['hidden_nodes'])
     # generate nested tuples describing layer names, # nodes, functions
     # per hidden layer of each set of layers describing an architecture
     layer_tuples = (
         # name scope hidden layers as 'hidden_1', 'hidden_2', ...
-        itertools.izip(['hidden_{}'.format(i+1) for i in xrange(max_depth)],
+        itertools.izip(['hidden_{}'.format(i + 1) for i in xrange(max_depth)],
                        layers, itertools.repeat(fn))
         for layers, fn in itertools.product(d_layer_grid['hidden_nodes'],
                                             d_layer_grid['activation'])
@@ -445,7 +462,8 @@ BEST HYPERPARAMS!... {}
 BEST ARCHITECTURE!... {}
 median = {}
 mean = {}
-    """.format(hyperparams, architecture, record_cross_val_acc, acc_mean)
+""".format(hyperparams, architecture, np.median(accs), best_mean)
+    #""".format(hyperparams, architecture, record_cross_val_acc, acc_mean)
 
     #hyperparams['epochs'] = 300
     #model = Model(hyperparams, architecture)
