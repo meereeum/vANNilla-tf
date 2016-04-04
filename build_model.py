@@ -145,6 +145,9 @@ class Model():
             self.hyperparams.update(**hyperparams)
 
             self.layers = layers
+            if seed:
+                # persist randomly initialized vars across sessions
+                tf.set_random_seed(seed)
 
             (self.x, self.y, self.dropout, self.accuracy, self.cost,
              self.train_op) = self._buildGraph()
@@ -410,11 +413,13 @@ HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu],#, tf.nn.sigmoid, tf.nn.tanh],
                                       [10, 10],
                                       [10, 7, 7]]}
 
+SEED = 47
+
 
 ########################################################################################
 
 def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
-                         d_hyperparams = HYPERPARAM_GRID,
+                         d_hyperparams = HYPERPARAM_GRID, seed = SEED,
                          d_architectures = HIDDEN_LAYER_GRID):
     df = pd.read_csv(file_in)
     assert sum(df.isnull().any()) == False
@@ -443,7 +448,7 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
         architecture[0] = architecture[0]._replace(nodes = data.n_features)
         architecture[-1] = architecture[-1]._replace(nodes = len(targets))
 
-        model = Model(hyperparams, architecture)
+        model = Model(hyperparams, architecture, seed = SEED)
         model.kFoldTrain(data, k = 10, verbose = False)
 
         #accuracies = []
