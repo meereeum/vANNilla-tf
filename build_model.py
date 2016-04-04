@@ -131,21 +131,36 @@ Warning: categorical values not encoded...no targets labeled `{}` found""".forma
 # ARTIFICIAL NEURAL NET
 
 class Model():
-    def __init__(self, hyperparams, layers):
+    def __init__(self, hyperparams = None, layers = None, graph_def = None, seed = None):
         """Artificial neural net with architecture according to given layers,
         training according to given hyperparameters.
 
         Args: hyperparams (dictionary of model hyperparameters)
               layers (dictionary of Layer objects)
         """
-        # turn off dropout, l2 reg, max epochs if not specified
-        DEFAULTS = {'dropout': 1, 'lambda_l2_reg': 0, 'epochs': np.inf}
-        self.hyperparams = DEFAULTS
-        self.hyperparams.update(**hyperparams)
+        if hyperparams and layers:
+            # turn off dropout, l2 reg, max epochs if not specified
+            DEFAULTS = {'dropout': 1, 'lambda_l2_reg': 0, 'epochs': np.inf}
+            self.hyperparams = DEFAULTS
+            self.hyperparams.update(**hyperparams)
 
-        self.layers = layers
+            self.layers = layers
 
-        self.x, self.y, self.dropout, self.accuracy, self.cost, self.train_op = self.buildGraph()
+            (self.x, self.y, self.dropout, self.accuracy, self.cost,
+             self.train_op) = self._buildGraph()
+
+        elif graph_def:
+            # restore from previously saved Graph
+            with open(graph_def, 'r') as f:
+                graph_def = tf.GraphDef()
+                graph_def.ParseFromString(f.read())
+
+            self.x, self.dropout, self.predictions = tf.import_graph_def(
+                graph_def, return_elements = ['x:0', 'dropout:0', 'predictions:0'],
+                name = '')
+
+        else:
+            raise(ValueError, 'Must supply hyperparameters and layer architecture to initialize Model, or supply graph definition to restore previous Model graph')
 
     @staticmethod
     def crossEntropy(observed, actual):
@@ -157,7 +172,7 @@ class Model():
         return -tf.reduce_mean(actual*tf.log(tf.clip_by_value(observed, 1e-10, 1.0)),
                                name='cross_entropy')
 
-    def buildGraph(self):
+    def _buildGraph(self):
         """Build tensorflow graph representing neural net with desired architecture +
         training ops for feed-forward and back-prop to minimize given cost function"""
         x_in = tf.placeholder(tf.float32, shape=[None, # None dim enables variable batch size
@@ -242,8 +257,8 @@ class Model():
         assert len(self.best_cross_vals) == k
 
     def train(self, data_dict, n_train, verbose = False,
-              save_best = False, outfile = './model_chkpt',
-              log_perf = False, outfile_perf = './performance.txt'):
+              save = False, outfile = './graph_def'):
+              #log_perf = False, outfile_perf = './performance.txt'):
         """Train on training data and, if supplied, cross-validate accuracy of
         validation data at every epoch.
 
@@ -302,15 +317,13 @@ Current cross-val accuracies: {} """.format(i/iters_per_epoch, cross_vals))
         self.record_epoch = i
         self.record_cross_val = max_
 
-        if verbose:
-            print """
-HYPERPARAMS: {}
-LAYERS:
-{}
-MAX CROSS-VAL ACCURACY (at epoch {}): {}
-            """.format(self.hyperparams,
-                        '\n    '.join(str(l) for l in self.layers),
-                        i, max_)
+    def _freeze(self):
+        # nodes to assign tf.Variables to constants with current value
+        with tf.name_scope('assign_ops'):
+            for tvar in tf.trainable_variables():
+                tf.assign(tvar, tvar.eval())
+                #assign = tf.assign(tvar, tvar.eval())#, name = tvar.name)
+                #tf.add_to_collection('assign_ops', assign)
 
 
 ########################################################################################
@@ -380,7 +393,7 @@ OUTFILES = {'targets': './targets.csv',
             'preprocessing_stddevs': './preprocessing_stddevs.csv',
             'train': './data_training_cleaned.csv',
             'validate': './data_validation_cleaned.csv',
-            'model_binary': './model_bin',
+            'graph_def': './graph_def',
             'performance': './performance.txt'}
 
 HYPERPARAM_GRID = {'learning_rate': [0.01, 0.05, 0.1],
