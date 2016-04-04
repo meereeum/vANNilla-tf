@@ -54,7 +54,14 @@ class DataIO:
 
         Returns: dataframe including binary {0, 1} columns for unique labels
         """
-        return pd.get_dummies(self.df, columns=[target_str])
+        try:
+            encoded = pd.get_dummies(self.df, columns=[target_str])
+        except(ValueError):
+            # ignore test data with no targets - but don't fail silently
+            print """
+Warning: categorical values not encoded...no targets labeled `{}` found""".format(target_str)
+            encoded = self.df
+        return encoded
 
     def kFoldCrossVal(self, k):
         """TODO
@@ -72,12 +79,13 @@ class DataIO:
             assert len(train) + len(validate) ==  len(df)
             yield (train, validate)
 
-    def stream(self, df, batchsize = None, max_iter = np.inf):
+    def stream(self, df = None, batchsize = None, max_iter = np.inf):
         """Generator of minibatches of given batch size, optionally
         limited by maximum numer of iterations over dataset (=epochs).
 
         Yields: (x,y) tuples of numpy arrays representing features & targets
         """
+        df = df if isinstance(df, pd.DataFrame) else self.df # <-- default
         len_ = len(df)
         batchsize = len_ if not batchsize else batchsize
         reps = 0
