@@ -246,19 +246,33 @@ class Model():
         self.best_cross_vals = []
         self.best_stopping_epochs = []
 
+        self.l_cross_vals = []
+
+        STREAM_KWARGS = {'train': {'batchsize': self.hyperparams['n_minibatch'],
+                                   'max_iter': self.hyperparams['epochs']},
+                         'validate': {}}
+
         for train, validate in data.kFoldCrossVal(k):
             # train on (k-1) folds
-            n_train = len(train)
-            train = data.stream(train, batchsize = self.hyperparams['n_minibatch'],
-                                       max_iter = self.hyperparams['epochs'])
-            validate = data.stream(validate)
-            self.train({'train': train, 'validate': validate}, n_train, verbose = verbose)
+            streams = {k: data.stream(v, **STREAM_KWARGS[k])
+                       for k, v in (('train', train), ('validate', validate))}
+            #streams = {'train':
+                       #data.stream(train, max_iter = self.hyperparams['epochs'],
+                                   #batchsize = self.hyperparams['n_minibatch']),
+                       #'validate': data.stream(validate)}
+            cross_vals = self.train(streams, len(train), verbose = verbose)
+            self.l_cross_vals.append(cross_vals)
 
             self.best_cross_vals.append(self.record_cross_val)
             self.best_stopping_epochs.append(self.record_epoch)
 
+        #mean_accs = [np.mean(acc) for acc in zip(l_cross_vals)]
+        #i, best_mean = max(enumerate(mean_accs, 1), key = lambda x: x[1])
+        #return (i, best_mean)
+
         assert len(self.best_cross_vals) == k
 
+    #def train(self, data_dict, verbose = False,
     def train(self, data_dict, n_train, verbose = False,
               save = False, outfile = './graph_def'):
               #log_perf = False, outfile_perf = './performance.txt'):
@@ -266,7 +280,7 @@ class Model():
         validation data at every epoch.
 
         Args: data_dict (dictionary with 'train' (&, optionally, 'validate') key/s
-                 + corresponding DataIO object/s)
+                 + corresponding streams of (x, y) tuples #DataIO object/s)
               verbose (optional bool for monitoring cost/accuracy)
               save_best (optional bool to save model/s with highest cross-validation
                 accuracy to disk) # TODO: best ?
@@ -274,51 +288,68 @@ class Model():
               log_perf (optional bool to save performance predictions to file)
               outfile_perf (optional path/to/file for model performance values)
         """
-        #n_train = len(data_dict['train'].next())
         iters_per_epoch = (n_train // self.hyperparams['n_minibatch']) + \
                           ((n_train % self.hyperparams['n_minibatch']) != 0)
 
+        validate = 'validate' in data_dict.iterkeys()
         cross_vals = []
+
         with tf.Session() as sesh:
             sesh.run(tf.initialize_all_variables())
-            while len(cross_vals) < self.hyperparams['epochs']:
-                try:
-                    for i, (x, y) in enumerate(data_dict['train'], 1):
-                        # train
+            #while len(cross_vals) < self.hyperparams['epochs']:
+            try:
+                for i, (x, y) in enumerate(data_dict['train'], 1):
+                    # train
+                    feed_dict = {self.x: x, self.y: y,
+                                self.dropout: self.hyperparams['dropout']}
+                    accuracy, cost, _ = sesh.run([self.accuracy, self.cost,
+                                                self.train_op], feed_dict)
+
+                    if verbose and i % 50 == 0:
+                        print 'cost after iteration {}: {}'.format(i + 1, cost)
+                        print 'accuracy: {}'.format(accuracy)
+
+                    if validate and i % iters_per_epoch == 0:
+                        # cross-validate with leftout fold
+                        x, y = data_dict['validate'].next()
                         feed_dict = {self.x: x, self.y: y,
-                                    self.dropout: self.hyperparams['dropout']}
-                        accuracy, cost, _ = sesh.run([self.accuracy, self.cost,
-                                                    self.train_op], feed_dict)
+                                    self.dropout: 1.0} # keep prob 1
+                        accuracy = sesh.run(self.accuracy, feed_dict)
 
-                        if verbose and i % 50 == 0:
-                            print 'cost after iteration {}: {}'.format(i + 1, cost)
-                            print 'accuracy: {}'.format(accuracy)
+                        cross_vals.append(accuracy)
 
-                        if i % iters_per_epoch == 0:
-                            # cross-validate with leftout fold
-                            x, y = data_dict['validate'].next()
-                            feed_dict = {self.x: x, self.y: y,
-                                        self.dropout: 1.0} # keep prob 1
-                            accuracy = sesh.run(self.accuracy, feed_dict)
+                        if verbose:
+                            print 'CROSS VAL accuracy at epoch {}: {}'.format(
+                                i // iters_per_epoch, accuracy)
 
-                            cross_vals.append(accuracy)
-
-                            if verbose:
-                                print 'CROSS VAL accuracy at epoch {}: {}'.format(
-                                    i//iters_per_epoch, accuracy)
-
-
-                except(KeyboardInterrupt):
-                    sys.exit("""
+            except(KeyboardInterrupt):
+                sys.exit("""
 
 Epochs: {}
-Current cross-val accuracies: {} """.format(i/iters_per_epoch, cross_vals))
+Current cross-val accuracies: {}""".format(i / iters_per_epoch, cross_vals))
 
-        assert len(cross_vals) == self.hyperparams['epochs']
-        # finds lowest i corresponding to highest cross_vals value
-        i, max_ = max(enumerate(cross_vals, 1), key = lambda x: x[1])
-        self.record_epoch = i
-        self.record_cross_val = max_
+            if save:
+                self._freeze()
+                with open(outfile, 'w') as f:
+                    f.write(sesh.graph_def.SerializeToString())
+
+        if validate:
+            assert len(cross_vals) == self.hyperparams['epochs']
+            # find earliest epoch corresponding to best cross-validation accuracy
+            i, max_ = max(enumerate(cross_vals, 1), key = lambda x: x[1])
+            self.record_epoch = i
+            self.record_cross_val = max_
+
+            if verbose:
+                print """
+    HYPERPARAMS: {}
+    LAYERS:
+    {}
+    MAX CROSS-VAL ACCURACY (at epoch {}): {}
+                """.format(self.hyperparams,
+                            '\n    '.join(str(l) for l in self.layers),
+                            i, max_)
+        return cross_vals
 
     def _freeze(self):
         # nodes to assign tf.Variables to constants with current value
@@ -440,8 +471,9 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
 
     combos = combinatorialGridSearch(d_hyperparams, d_architectures)
 
-    record_cross_val_acc = 0
-    acc_mean = 0
+    #record_cross_val_acc = 0
+    #acc_mean = 0
+    overall_best_mean, overall_std = 0, 0
 
     # tune hyperparameters, architecture
     for hyperparams, architecture in combos:
@@ -462,16 +494,33 @@ LAYERS:
     {}
 MAX CROSS-VAL ACCURACIES: {}
 AT EPOCHS: {}
-        """.format(model.hyperparams,
-                   '\n    '.join(str(l) for l in model.layers),
-                   model.best_cross_vals, model.best_stopping_epochs)
+""".format(model.hyperparams,
+           '\n    '.join(str(l) for l in model.layers),
+           model.best_cross_vals, model.best_stopping_epochs)
 
-        median = np.median(model.best_cross_vals)
-        mean = np.mean(model.best_cross_vals)
-        if median > record_cross_val_acc or \
-        (median == record_cross_val_acc and mean > acc_mean):
-            record_cross_val_acc, acc_mean = median, mean
+        #median = np.median(model.best_cross_vals)
+        #mean = np.mean(model.best_cross_vals)
+        #if median > record_cross_val_acc or \
+        #(median == record_cross_val_acc and mean > acc_mean):
+            #record_cross_val_acc, acc_mean = median, mean
+            #best_model = (hyperparams, architecture)
+
+        # find epoch with best mean cross-val accuracy across all k folds of training
+        mean_accs = [np.mean(accs) for accs in itertools.izip(*model.l_cross_vals)]
+        i, best_mean = max(enumerate(mean_accs), key = lambda x: x[1])
+        # accuracies at "best" epoch
+        selected_accs = [cross_vals[i] for cross_vals in model.l_cross_vals]
+        std = np.std(selected_accs)
+        #std = np.std([cross_vals[i+1] for cross_vals in model.l_cross_vals])
+        if best_mean > overall_best_mean or (best_mean == overall_best_mean and
+                                             std < overall_std):
+            overall_best_mean, overall_std = best_mean, std
+            stopping_epoch = i + 1 # list of accuracies starts after epoch 1
+            accs = selected_accs
             best_model = (hyperparams, architecture)
+            print 'New best model!'
+            print 'Accuracies at epoch {}: {}'.format(stopping_epoch, accs)
+            print 'Mean: {} +/- {}'.format(best_mean, overall_std)
 
     hyperparams, architecture = best_model
 
@@ -498,6 +547,25 @@ mean = {}
     #with open(OUTFILES['architecture'], 'w') as f:
         #to_dump = [layer._asdict() for layer in architecture]
         #json.dump(to_dump, f, indent = 4)
+
+    with open(OUTFILES['performance'], 'w') as f:
+        f.write("""K-fold cross validation accuracies at selected epoch:
+{}
+
+Mean: {}
+STDEV: {}
+Median: {}
+IQR: {}
+Range: {}
+""".format('\n'.join(str(a) for a in accs),
+           overall_best_mean, overall_std, np.median(accs),
+           np.subtract(*np.percentile(accs, [75, 25])), np.ptp(accs)))
+
+    datastream = {'train': data.stream(batchsize = hyperparams['n_minibatch'],
+                                       max_iter = stopping_epoch)}
+    hyperparams['epochs'] = stopping_epoch
+    model = Model(hyperparams, architecture, seed = SEED)
+    model.train(datastream, data.len_, save = True, outfile = OUTFILES['graph_def'])
 
 
 ########################################################################################
