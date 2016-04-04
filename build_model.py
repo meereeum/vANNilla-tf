@@ -457,17 +457,18 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
 
     # record categorical targets for decoding test set
     targets = list(pd.get_dummies(df[target_label]))
-    # with open(OUTFILES['targets'], 'w') as f:
-    #     f.write(','.join(targets))
+    with open(OUTFILES['targets'], 'w') as f:
+        f.write(','.join(targets))
 
     # preprocess features
     data = DataIO(df, target_label, DataIO.gaussianNorm, [-10, 10])
 
     # extract raw features mean, stddev from test set to use for all preprocessing
-    params = (data.df.mean(axis=0), data.df.std(axis=0))
-    # for k, param in zip(('preprocessing_means', 'preprocessing_stddevs'), params):
-    #     with open(OUTFILES[k], 'w') as f:
-    #         param.to_csv(f)
+    raw_features, _ = DataIO(df, target_label).splitXY()
+    params = (raw_features.mean(axis=0), raw_features.std(axis=0))
+    for k, param in zip(('preprocessing_means', 'preprocessing_stddevs'), params):
+         with open(OUTFILES[k], 'w') as f:
+             param.to_csv(f)
 
     combos = combinatorialGridSearch(d_hyperparams, d_architectures)
 
