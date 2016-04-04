@@ -2,6 +2,7 @@ from __future__ import division
 import itertools
 from collections import namedtuple
 import sys
+import json
 
 import numpy as np
 import tensorflow as tf
@@ -443,6 +444,17 @@ mean = {}
     #for i in xrange(5):
         #model.train(data)
     # TODO: log performance to performance.txt
+    ##model_params = (hyperparams, architecture)
+    #for k, param in zip(('hyperparams', 'architecture'), best_model):#model_params):
+        #with open(OUTFILES[k], 'w' as f:
+                  #json.dump(param, f, indent = 4)
+
+    #with open(OUTFILES['hyperparams'], 'w') as f:
+        #json.dump(hyperparams, f, indent = 4)
+    #with open(OUTFILES['architecture'], 'w') as f:
+        #to_dump = [layer._asdict() for layer in architecture]
+        #json.dump(to_dump, f, indent = 4)
+
 
 ########################################################################################
 
