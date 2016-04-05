@@ -14,12 +14,12 @@ import pandas as pd
 
 class DataIO:
     def __init__(self, df, target_label, norm_fn = None, clip_to = None):
-        """ Data object with functions for preprocessing and streaming
+        """Data class with functions for preprocessing and streaming
 
-        Args: df (pandas dataframe)
-              target_label (string corresponding to target label)
-              norm_fn (optional, function for features normalization)
-              clip_to (optional, iterable of max/min values for clipping)
+        Args: df (pandas DataFrame)
+              target_label (string)
+              norm_fn (function) - optional function for features normalization
+              clip_to (iterable) - optional 2-tuple of max/min values for clipping
         """
         self.regex = {'features': '^[^({})]'.format(target_label),
                       'targets': '^{}'.format(target_label)}
@@ -39,7 +39,7 @@ class DataIO:
         return x.shape[1]
 
     def splitXY(self, df = None):
-        """Split given dataframe into dataframes representing features & targets"""
+        """Split given DataFrame into DataFrames representing features & targets"""
         df = df if isinstance(df, pd.DataFrame) else self.df # <-- default
         return tuple(df.filter(regex = self.regex[k])
                      for k in ('features', 'targets'))
@@ -133,11 +133,16 @@ Warning: categorical values not encoded...no targets labeled `{}` found""".forma
 class Model():
     def __init__(self, hyperparams = None, layers = None, graph_def = None, seed = None):
         """Artificial neural net with architecture according to given layers,
-        training according to given hyperparameters.
+        training according to given hyperparameters
 
-        Args: hyperparams (dictionary of model hyperparameters)
-              layers (dictionary of Layer objects)
+        Args: hyperparams (dictionary) - model hyperparameters
+              layers (list) - sequential Layer objects
+              graph_def (filepath) - model binary to restore
+              seed (int) - optional random seed to persist random variable
+                initialization repeatably across sessions
         """
+        tf.set_random_seed(seed)
+
         if hyperparams and layers:
             # turn off dropout, l2 reg, max epochs if not specified
             DEFAULTS = {'dropout': 1, 'lambda_l2_reg': 0, 'epochs': np.inf}
@@ -176,8 +181,8 @@ class Model():
                                name='cross_entropy')
 
     def _buildGraph(self):
-        """Build tensorflow graph representing neural net with desired architecture +
-        training ops for feed-forward and back-prop to minimize given cost function"""
+        """Build TensorFlow graph representing neural net with desired architecture +
+        training ops for feed-forward and back-prop to minimize cost function"""
         x_in = tf.placeholder(tf.float32, shape=[None, # None dim enables variable batch size
                                                  self.layers[0].nodes], name='x')
         xs = [x_in]
@@ -199,53 +204,44 @@ class Model():
         dropout = tf.placeholder(tf.float32, name='dropout')
         for i, layer in enumerate(self.layers[1:]):
             w, b = ws_and_bs[i]
-            # add dropout to hidden weights but not input layer
+            # add dropout to hidden but not input weights
             if i > 0:
                 w = tf.nn.dropout(w, dropout)
-            #w = tf.nn.dropout(w, dropout) if i > 0 else w #TODO: leave ??
-            #w_ = tf.nn.dropout(w, dropout) if i > 0 else w #TODO: leave ??
             xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w, b),
                                        name = '{}/activation'.format(
                                            layer.name)))
 
-        # tf.identity to set explicit name for output node
+        # use identity to set explicit name for output node
         y_out = tf.identity(xs[-1], name='y_out')
         y = tf.placeholder(tf.float32, shape=[None, 2], name='y')
 
         # cost & training
-        #cost = Model.crossEntropy(y_out, y)
         lmbda = tf.constant(self.hyperparams['lambda_l2_reg'], tf.float32,
                             name='lambda')
         l2_loss = tf.add_n([tf.nn.l2_loss(w) for w, _ in ws_and_bs])
-        #l2_reg = tf.mul(lmbda, l2_loss, name='l2_regularization')
-        #cost += tf.mul(lmbda, l2_loss, name='l2_regularization')
-        #total_cost = tf.add(Model.crossEntropy(y_out, y),
-                            #tf.mul(lmbda, l2_loss, name='l2_regularization'))
-        cost = tf.add(Model.crossEntropy(y_out, y),
-                      tf.mul(lmbda, l2_loss, name='l2_regularization'))
+        cost = tf.add(tf.mul(lmbda, l2_loss, name='l2_regularization'),
+                      Model.crossEntropy(y_out, y), name='cost')
 
         train_op = tf.train.AdamOptimizer(self.hyperparams['learning_rate'])\
                                           .minimize(cost)
-                                          #.minimize(total_cost)
         #tvars = tf.trainable_variables()
         #grads = tf.gradients(cost, tvars)
         # TODO: cap gradients ? learning rate decay ?
         #train_op = tf.train.GradientDescentOptimizer(self.hyperparams['learning_rate'])\
                            #.apply_gradients(zip(grads, tvars))
         predictions = tf.argmax(y_out, 1, name = 'predictions')
-        #accuracy = tf.reduce_mean(tf.cast(tf.equal(tf.argmax(y_out, 1),
-        accuracy = tf.reduce_mean(tf.cast(tf.equal(predictions,
-                                                   tf.argmax(y, 1)), tf.float32),
-                                  name='accuracy')
+        accuracy = tf.reduce_mean(tf.cast(tf.equal(predictions, tf.argmax(y, 1)),
+                                          tf.float32), name='accuracy')
 
         return (x_in, y, dropout, accuracy, cost, train_op)
 
-    def kFoldTrain(self, data, k = 10, verbose = False):
-        """TODO
-        """
+    def kFoldTrain(self, data, k = 10, verbose = False, num_cores = None):
+        """Train model using k-fold cross-validation of full set of training data"""
+        # highest cross-validation accuracy per fold
         self.best_cross_vals = []
+        # earliest epoch corresponding to highest cross-val accuracy per fold
         self.best_stopping_epochs = []
-
+        # list of lists of each cross-validation accuracy per epoch, across all folds
         self.l_cross_vals = []
 
         STREAM_KWARGS = {'train': {'batchsize': self.hyperparams['n_minibatch'],
@@ -256,37 +252,31 @@ class Model():
             # train on (k-1) folds
             streams = {k: data.stream(v, **STREAM_KWARGS[k])
                        for k, v in (('train', train), ('validate', validate))}
-            #streams = {'train':
-                       #data.stream(train, max_iter = self.hyperparams['epochs'],
-                                   #batchsize = self.hyperparams['n_minibatch']),
-                       #'validate': data.stream(validate)}
-            cross_vals = self.train(streams, len(train), verbose = verbose)
-            self.l_cross_vals.append(cross_vals)
 
+            cross_vals = self.train(streams, len(train), verbose = verbose,
+                                    num_cores = num_cores)
+
+            self.l_cross_vals.append(cross_vals)
             self.best_cross_vals.append(self.record_cross_val)
             self.best_stopping_epochs.append(self.record_epoch)
 
-        #mean_accs = [np.mean(acc) for acc in zip(l_cross_vals)]
-        #i, best_mean = max(enumerate(mean_accs, 1), key = lambda x: x[1])
-        #return (i, best_mean)
+        assert len(self.l_cross_vals) == k
 
-        assert len(self.best_cross_vals) == k
-
-    #def train(self, data_dict, verbose = False,
-    def train(self, data_dict, n_train, verbose = False,
+    def train(self, data_dict, n_train, verbose = False, num_cores = 0,
               save = False, outfile = './graph_def'):
-              #log_perf = False, outfile_perf = './performance.txt'):
         """Train on training data and, if supplied, cross-validate accuracy of
         validation data at every epoch.
 
-        Args: data_dict (dictionary with 'train' (&, optionally, 'validate') key/s
-                 + corresponding streams of (x, y) tuples #DataIO object/s)
-              verbose (optional bool for monitoring cost/accuracy)
-              save_best (optional bool to save model/s with highest cross-validation
-                accuracy to disk) # TODO: best ?
-              outfile (optional path/to/file for model checkpoints)
-              log_perf (optional bool to save performance predictions to file)
-              outfile_perf (optional path/to/file for model performance values)
+        Args: data_dict (dictionary) - containing `train` (&, optionally, `validate`)
+                key/s + corresponding iterable streams of (x, y) tuples
+              n_train (int) - size of training data
+              verbose (bool) - print to STDOUT to monitor cost/accuracy
+              num_cores (int) - number of cores to use for TensorFlow operations
+                 (defaults to all cores detected automatically)
+              save (bool) - freeze & save trained model binary
+              outfile (filepath) - optional path/to/file of model binary
+
+        Returns: list of cross-validation accuracies (empty if no `validate` data)
         """
         iters_per_epoch = (n_train // self.hyperparams['n_minibatch']) + \
                           ((n_train % self.hyperparams['n_minibatch']) != 0)
@@ -315,7 +305,6 @@ class Model():
                         feed_dict = {self.x: x, self.y: y,
                                     self.dropout: 1.0} # keep prob 1
                         accuracy = sesh.run(self.accuracy, feed_dict)
-
                         cross_vals.append(accuracy)
 
                         if verbose:
@@ -371,12 +360,12 @@ Layer = namedtuple('Layer', ('name', 'nodes', 'activation'))
 def combinatorialGridSearch(d_hyperparam_grid, d_layer_grid):
     """Generate all combinations of hyperparameter and layer configs
 
-    Args: d_hyperparam_grid (dictionary with hyperparameter names (strings)
-            as keys + corresponding lists of settings as values)
-          d_layer_grid (dictionary with the following items...
+    Args: d_hyperparam_grid (dictionary) - hyperparameter names (string)
+            as keys + corresponding potential settings (list) as values
+          d_layer_grid (dictionary) - containing the following items...
             'activation': list of tensorflow activation functions, &
             'hidden_nodes': list of lists of hidden layer architectures,
-            i.e. nodes per layer)
+               i.e. nodes per layer per config
 
     Returns: generator yielding tuples of dictionaries (hyperparams, architecture)
     """
@@ -394,13 +383,14 @@ def combinatorialGridSearch(d_hyperparam_grid, d_layer_grid):
     hyperparam_tuples = (itertools.izip(itertools.repeat(k),v)
                          for k,v in d_hyperparam_grid.iteritems())
     # all combinatorial hyperparameter settings
-    HYPERPARAMS = (merge_with_default(params) for params in itertools.product(*hyperparam_tuples))
+    HYPERPARAMS = (merge_with_default(params) for params in
+                   itertools.product(*hyperparam_tuples))
 
     max_depth = max(len(layers) for layers in d_layer_grid['hidden_nodes'])
     # generate nested tuples describing layer names, # nodes, functions
     # per hidden layer of each set of layers describing an architecture
     layer_tuples = (
-        # name scope hidden layers as 'hidden_1', 'hidden_2', ...
+        # name scope hidden layers as `hidden_1`, `hidden_2`, etc
         itertools.izip(['hidden_{}'.format(i + 1) for i in xrange(max_depth)],
                        layers, itertools.repeat(fn))
         for layers, fn in itertools.product(d_layer_grid['hidden_nodes'],
@@ -429,31 +419,38 @@ OUTFILES = {'targets': './targets.csv',
             'preprocessing_stddevs': './preprocessing_stddevs.csv',
             'train': './data_training_cleaned.csv',
             'validate': './data_validation_cleaned.csv',
-            'graph_def': './graph_def',
+            'model_params': './model_params.txt',
+            'graph_def': './graph_def.bin',
             'performance': './performance.txt'}
 
 HYPERPARAM_GRID = {'learning_rate': [0.01, 0.05, 0.1],
                    # keep probability for dropout (1 for none)
-                   'dropout': [0.5, 0.7, 1],#[0.3, 0.5, 0.7, 1],
+                   'dropout': [0.5, 0.7, 1],
                    # lambda for L2 regularization (0 for none)
-                   'lambda_l2_reg': [0, 1E-5, 1E-4],# 1E-3],#[0, 1E-5, 1E-4, 1E-3],
+                   'lambda_l2_reg': [0, 1E-5, 1E-4, 1E-3],
                    'n_minibatch': [100],
                    'epochs': [100]}
 
-HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu],#, tf.nn.sigmoid, tf.nn.tanh],
+HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu, tf.nn.sigmoid],# tf.nn.tanh],
                      'hidden_nodes': [[10],
-                                      #[10, 7],
+                                      [10, 7],
                                       [10, 10],
                                       [10, 7, 7]]}
 
 SEED = 47
 
+NUM_CORES = 3
+
 
 ########################################################################################
 
 def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
-                         d_hyperparams = HYPERPARAM_GRID, seed = SEED,
-                         d_architectures = HIDDEN_LAYER_GRID):
+                         d_hyperparams = HYPERPARAM_GRID,
+                         d_architectures = HIDDEN_LAYER_GRID,
+                         seed = None, num_cores = None, verbose = False):
+    """Preprocess training data, use grid search of all combinatorial possibilities
+    for given hyperparameters and layer architecture to tune artificial neural net
+    model, and save files necessary for resurrection of tuned model"""
     df = pd.read_csv(file_in)
     assert sum(df.isnull().any()) == False
 
@@ -511,7 +508,8 @@ AT EPOCHS: {}
         # find epoch with best mean cross-val accuracy across all k folds of training
         mean_accs = [np.mean(accs) for accs in itertools.izip(*model.l_cross_vals)]
         i, best_mean = max(enumerate(mean_accs), key = lambda x: x[1])
-        # accuracies at "best" epoch
+
+        # accuracies at `best` epoch across k folds
         selected_accs = [cross_vals[i] for cross_vals in model.l_cross_vals]
         std = np.std(selected_accs)
         #std = np.std([cross_vals[i+1] for cross_vals in model.l_cross_vals])
@@ -521,9 +519,11 @@ AT EPOCHS: {}
             stopping_epoch = i + 1 # list of accuracies starts after epoch 1
             accs = selected_accs
             best_model = (hyperparams, architecture)
-            print 'New best model!'
-            print 'Accuracies at epoch {}: {}'.format(stopping_epoch, accs)
-            print 'Mean: {} +/- {}'.format(best_mean, overall_std)
+            print """
+New best model!
+Accuracies at epoch {}: {}
+Mean: {} +/- {}
+            """.format(stopping_epoch, accs, overall_best_mean, overall_std)
 
     hyperparams, architecture = best_model
 
@@ -531,47 +531,40 @@ AT EPOCHS: {}
 BEST HYPERPARAMS!... {}
 BEST ARCHITECTURE!... {}
 median = {}
-mean = {}
-""".format(hyperparams, architecture, np.median(accs), best_mean)
-    #""".format(hyperparams, architecture, record_cross_val_acc, acc_mean)
-
-    #hyperparams['epochs'] = 300
-    #model = Model(hyperparams, architecture)
-    #for i in xrange(5):
-        #model.train(data)
-    # TODO: log performance to performance.txt
-    ##model_params = (hyperparams, architecture)
-    #for k, param in zip(('hyperparams', 'architecture'), best_model):#model_params):
-        #with open(OUTFILES[k], 'w' as f:
-                  #json.dump(param, f, indent = 4)
-
-    #with open(OUTFILES['hyperparams'], 'w') as f:
-        #json.dump(hyperparams, f, indent = 4)
-    #with open(OUTFILES['architecture'], 'w') as f:
-        #to_dump = [layer._asdict() for layer in architecture]
-        #json.dump(to_dump, f, indent = 4)
+mean = {}""".format(hyperparams, architecture, np.median(accs), overall_best_mean)
 
     with open(OUTFILES['performance'], 'w') as f:
-        f.write("""K-fold cross validation accuracies at selected epoch:
-{}
+        f.write("""k-fold cross-validation accuracies at selected epoch:
+    {}
 
 Mean: {}
 STDEV: {}
 Median: {}
 IQR: {}
 Range: {}
-""".format('\n'.join(str(a) for a in accs),
-           overall_best_mean, overall_std, np.median(accs),
-           np.subtract(*np.percentile(accs, [75, 25])), np.ptp(accs)))
+        """.format('\n    '.join(str(a) for a in accs),
+                    overall_best_mean, overall_std, np.median(accs),
+                    np.subtract(*np.percentile(accs, [75, 25])), np.ptp(accs)))
+
+    hyperparams['epochs'] = stopping_epoch
+
+    with open(OUTFILES['model_params'], 'w') as f:
+        f.write("""
+HYPERPARAMS:
+    {}
+ARCHITECTURE:
+    {}
+        """.format(hyperparams, '\n    '.join(str(l) for l in architecture)))
 
     datastream = {'train': data.stream(batchsize = hyperparams['n_minibatch'],
                                        max_iter = stopping_epoch)}
-    hyperparams['epochs'] = stopping_epoch
-    model = Model(hyperparams, architecture, seed = SEED)
-    model.train(datastream, data.len_, save = True, outfile = OUTFILES['graph_def'])
+
+    model = Model(hyperparams, architecture, seed = seed)
+    model.train(datastream, data.len_, num_cores = num_cores, verbose = verbose,
+                save = True, outfile = OUTFILES['graph_def'])
 
 
 ########################################################################################
 
-if __name__ == "__main__":
-    doWork_combinatorial()
+if __name__ == '__main__':
+    doWork_combinatorial(seed = SEED, num_cores = NUM_CORES)
