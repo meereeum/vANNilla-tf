@@ -2,7 +2,7 @@ from __future__ import division
 import itertools
 from collections import namedtuple
 import sys
-import json
+import re
 
 import numpy as np
 import tensorflow as tf
@@ -349,15 +349,17 @@ Current cross-val accuracies: {}""".format(i / iters_per_epoch, cross_vals))
                 """.format(self.hyperparams,
                             '\n    '.join(str(l) for l in self.layers),
                             i, max_)
+
         return cross_vals
 
     def _freeze(self):
-        # nodes to assign tf.Variables to constants with current value
+        """Add nodes to assign weights & biases to constants containing current
+        trained values, enabling them to be saved by TensorFlow's graph_def"""
+        regex = re.compile('^[^:]*') # string up to first `:`
         with tf.name_scope('assign_ops'):
             for tvar in tf.trainable_variables():
-                tf.assign(tvar, tvar.eval())
-                #assign = tf.assign(tvar, tvar.eval())#, name = tvar.name)
-                #tf.add_to_collection('assign_ops', assign)
+                tf.assign(tvar, tvar.eval(),
+                          name = re.match(regex, tvar.name).group(0))
 
 
 ########################################################################################
