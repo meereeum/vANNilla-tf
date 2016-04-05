@@ -3,3 +3,5 @@ assignment
 *.pyc
 *.csv
 log
+graph_def.bin
+*.txt
