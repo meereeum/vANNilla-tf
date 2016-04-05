@@ -27,7 +27,9 @@ class DataIO:
         self.df = self.normalizeXs(df, norm_fn) if norm_fn else df
         self.df = self.encodeYs(target_label)
         if clip_to:
-            self.df = self.df.clip(*clip_to) # TODO: check for >1 so as not to affect targets ?
+            # don't touch encoded one-hots
+            assert sum(abs(x) > 1 for x in clip_to)
+            self.df = self.df.clip(*clip_to)
 
     @property
     def len_(self):
@@ -110,15 +112,15 @@ Warning: categorical values not encoded...no targets labeled `{}` found""".forma
         Else, center by the given mean & normalize by the given stddev."""
         mean = mean if isinstance(mean, pd.Series) else df.mean(axis=0)
         std = std if isinstance(std, pd.Series) else df.std(axis=0)
-        return (df - mean)/std
+        return (df - mean) / std
 
     @staticmethod
     def minMax(df):
         """Center dataframe column ranges to [-1, 1]"""
         max_, min_ = df.max(axis=0), df.min(axis=0)
-        midrange = (max_ + min_)/2
-        half_range = (max_ - min_)/2
-        return (df - midrange)/half_range
+        midrange = (max_ + min_) / 2
+        half_range = (max_ - min_) / 2
+        return (df - midrange) / half_range
 
     @staticmethod
     def centerMeanAndNormalize(df):
@@ -150,16 +152,13 @@ class Model():
             self.hyperparams.update(**hyperparams)
 
             self.layers = layers
-            if seed:
-                # persist randomly initialized vars across sessions
-                tf.set_random_seed(seed)
 
             (self.x, self.y, self.dropout, self.accuracy, self.cost,
              self.train_op) = self._buildGraph()
 
         elif graph_def:
             # restore from previously saved Graph
-            with open(graph_def, 'r') as f:
+            with open(graph_def, 'rb') as f:
                 graph_def = tf.GraphDef()
                 graph_def.ParseFromString(f.read())
 
@@ -284,7 +283,10 @@ class Model():
         validate = 'validate' in data_dict.iterkeys()
         cross_vals = []
 
-        with tf.Session() as sesh:
+        config = tf.ConfigProto(inter_op_parallelism_threads = num_cores,
+                                intra_op_parallelism_threads = num_cores)
+
+        with tf.Session(config = config) as sesh:
             sesh.run(tf.initialize_all_variables())
             #while len(cross_vals) < self.hyperparams['epochs']:
             try:
@@ -315,11 +317,12 @@ class Model():
                 sys.exit("""
 
 Epochs: {}
-Current cross-val accuracies: {}""".format(i / iters_per_epoch, cross_vals))
+Current cross-val accuracies: {}
+                """.format(i / iters_per_epoch, cross_vals))
 
             if save:
                 self._freeze()
-                with open(outfile, 'w') as f:
+                with open(outfile, 'wb') as f:
                     f.write(sesh.graph_def.SerializeToString())
 
         if validate:
@@ -469,24 +472,16 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
          with open(OUTFILES[k], 'w') as f:
              param.to_csv(f)
 
+    # tune hyperparameters, architecture
     combos = combinatorialGridSearch(d_hyperparams, d_architectures)
-
-    #record_cross_val_acc = 0
-    #acc_mean = 0
     overall_best_mean, overall_std = 0, 0
 
-    # tune hyperparameters, architecture
     for hyperparams, architecture in combos:
         architecture[0] = architecture[0]._replace(nodes = data.n_features)
         architecture[-1] = architecture[-1]._replace(nodes = len(targets))
 
-        model = Model(hyperparams, architecture, seed = SEED)
-        model.kFoldTrain(data, k = 10, verbose = False)
-
-        #accuracies = []
-        #for i in xrange(3):
-            #model.kFold_train(data, k = 10)
-            ##accuracies.append(model.max_cross_val_accuracy)
+        model = Model(hyperparams, architecture, seed = seed)
+        model.kFoldTrain(data, k = 10, verbose = verbose, num_cores = num_cores)
 
         print """
 HYPERPARAMS: {}
@@ -494,16 +489,9 @@ LAYERS:
     {}
 MAX CROSS-VAL ACCURACIES: {}
 AT EPOCHS: {}
-""".format(model.hyperparams,
-           '\n    '.join(str(l) for l in model.layers),
-           model.best_cross_vals, model.best_stopping_epochs)
-
-        #median = np.median(model.best_cross_vals)
-        #mean = np.mean(model.best_cross_vals)
-        #if median > record_cross_val_acc or \
-        #(median == record_cross_val_acc and mean > acc_mean):
-            #record_cross_val_acc, acc_mean = median, mean
-            #best_model = (hyperparams, architecture)
+        """.format(model.hyperparams,
+                   '\n    '.join(str(l) for l in model.layers),
+                   model.best_cross_vals, model.best_stopping_epochs)
 
         # find epoch with best mean cross-val accuracy across all k folds of training
         mean_accs = [np.mean(accs) for accs in itertools.izip(*model.l_cross_vals)]
@@ -512,7 +500,7 @@ AT EPOCHS: {}
         # accuracies at `best` epoch across k folds
         selected_accs = [cross_vals[i] for cross_vals in model.l_cross_vals]
         std = np.std(selected_accs)
-        #std = np.std([cross_vals[i+1] for cross_vals in model.l_cross_vals])
+
         if best_mean > overall_best_mean or (best_mean == overall_best_mean and
                                              std < overall_std):
             overall_best_mean, overall_std = best_mean, std
