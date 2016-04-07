@@ -396,55 +396,128 @@ Current cross-val accuracies: {}
 
 Layer = namedtuple('Layer', ('name', 'nodes', 'activation'))
 
-def combinatorialGridSearch(d_hyperparam_grid, d_layer_grid):
-    """Generate all combinations of hyperparameter and layer configs
-
-    Args: d_hyperparam_grid (dictionary) - hyperparameter names (string)
-            as keys + corresponding potential settings (list) as values
-          d_layer_grid (dictionary) - containing the following items...
-            'activation': list of tensorflow activation functions, &
-            'hidden_nodes': list of lists of hidden layer architectures,
-               i.e. nodes per layer per config
-
-    Returns: generator yielding tuples of dictionaries (hyperparams, architecture)
-    """
-    DEFAULT = {'n_minibatch': 100,
-               'epochs': 200}
-    def merge_with_default(new_params):
-        """Update DEFAULT dict with passed hyperparams --
-        any DEFAULT keys duplicated by new_params will be replaced
+class GridSearch():
+    def __init__(self, d_hyperparam_grid, d_layer_grid):
+        """TODO
+        Args: d_hyperparam_grid (dictionary) - hyperparameter names (string)
+                as keys + corresponding potential settings (list) as values
+              d_layer_grid (dictionary) - containing the following items...
+                'activation': list of tensorflow activation functions, &
+                'hidden_nodes': list of lists of hidden layer architectures,
+                i.e. nodes per layer per config
         """
-        d = DEFAULT.copy()
-        d.update(new_params)
-        return d
+        DEFAULTS = {'learning_rate': [0.05],
+                    'dropout': [1], # no dropout
+                    'lambda_l2_reg': [0], # no L2 reg
+                    'n_minibatch': [100],
+                    'epochs': [200]}
+        self.d_hyperparam_grid = DEFAULTS.copy()
+        # any DEFAULT items with key duplicated by d_hyperparam_grid will be replaced
+        self.d_hyperparam_grid.update(**d_hyperparam_grid)
 
-    # generate lists of tuples of (k, v) pairs for each hyperparameter + value
-    hyperparam_tuples = (itertools.izip(itertools.repeat(k),v)
-                         for k,v in d_hyperparam_grid.iteritems())
-    # all combinatorial hyperparameter settings
-    HYPERPARAMS = (merge_with_default(params) for params in
-                   itertools.product(*hyperparam_tuples))
+        self.d_layer_grid = d_layer_grid
 
-    max_depth = max(len(layers) for layers in d_layer_grid['hidden_nodes'])
-    # generate nested tuples describing layer names, # nodes, functions
-    # per hidden layer of each set of layers describing an architecture
-    layer_tuples = (
-        # name scope hidden layers as `hidden_1`, `hidden_2`, etc
-        itertools.izip(['hidden_{}'.format(i + 1) for i in xrange(max_depth)],
-                       layers, itertools.repeat(fn))
-        for layers, fn in itertools.product(d_layer_grid['hidden_nodes'],
-                                            d_layer_grid['activation'])
-    )
-    # all combinatorial nn architectures of Layers
-    ARCHITECTURES = (
-        # input & output nodes will be sized by data shape
-        [Layer('input', None, None)] +
-        [Layer(*tup) for tup in hidden_architecture] +
-        [Layer('output', None, tf.nn.softmax)]
-        for hidden_architecture in layer_tuples
-    )
+    def iterCombos(self):
+        """Generate all combinations of hyperparameter and layer configs
 
-    return itertools.product(HYPERPARAMS, ARCHITECTURES)
+        Returns: generator yielding tuple(dictionary, list of Layers)
+          corresponding, respectively, to hyperparams, architecture
+        """
+        # yields generators of tuples of (k, v) pairs for each hyperparameter + value
+        hyperparam_tuples = (itertools.izip(itertools.repeat(k), v)
+                             for k, v in self.d_hyperparam_grid.iteritems())
+        # all combinatorial hyperparameter settings
+        HYPERPARAMS = (dict(params) for params in
+                       itertools.product(*hyperparam_tuples))
+
+        max_depth = max(len(layers) for layers in self.d_layer_grid['hidden_nodes'])
+        # generate nested tuples describing layer names, # nodes, functions
+        # per hidden layer of each set of layers describing an architecture
+        layer_tuples = (
+            # name scope hidden layers as `hidden_1`, `hidden_2`, etc
+            itertools.izip(['hidden_{}'.format(i + 1) for i in xrange(max_depth)],
+                        layers, itertools.repeat(fn))
+            for layers, fn in itertools.product(self.d_layer_grid['hidden_nodes'],
+                                                self.d_layer_grid['activation'])
+        )
+        # all combinatorial nn architectures of Layers
+        ARCHITECTURES = (
+            # input & output nodes will be sized by data shape
+            [Layer('input', None, None)] +
+            [Layer(*tup) for tup in hidden_architecture] +
+            [Layer('output', None, tf.nn.softmax)]
+            for hidden_architecture in layer_tuples
+        )
+
+        return itertools.product(HYPERPARAMS, ARCHITECTURES)
+
+    def tuneParams(self, data, n_targets, seed = None, num_cores = None,
+                   verbose = False, k = 10):
+        """Tune hyperparameters, architecture
+
+        Args: TODO
+        """
+        overall_best_mean, overall_std = 0, 0
+
+        for hyperparams, architecture in self.iterCombos():
+            architecture[0] = architecture[0]._replace(nodes = data.n_features)
+            architecture[-1] = architecture[-1]._replace(nodes = n_targets)
+
+            model = Model(hyperparams, architecture)
+            model.kFoldTrain(data, k = k, verbose = verbose,
+                             num_cores = num_cores, seed = seed)
+
+            print """
+HYPERPARAMS: {}
+LAYERS:
+    {}
+MAX CROSS-VAL ACCURACIES: {}
+AT EPOCHS: {}
+""".format(model.hyperparams, '\n    '.join(str(l) for l in model.layers),
+           model.best_cross_vals, model.best_stopping_epochs)
+
+            # find epoch with best mean cross-val accuracy across all k folds of training
+            mean_accs = [np.mean(accs) for accs in itertools.izip(*model.l_cross_vals)]
+            i, best_mean = max(enumerate(mean_accs), key = lambda x: x[1])
+
+            # accuracies at `best` epoch across k folds
+            selected_accs = [cross_vals[i] for cross_vals in model.l_cross_vals]
+            std = np.std(selected_accs)
+
+            if best_mean > overall_best_mean or (best_mean == overall_best_mean and
+                                                std < overall_std):
+                overall_best_mean, overall_std = best_mean, std
+                stopping_epoch = i + 1 # list of accuracies starts after epoch 1
+                accs = selected_accs
+                best_model = (hyperparams, architecture)
+                print """
+New best model!
+Accuracies at epoch {}: {}
+Mean: {} +/- {}
+""".format(stopping_epoch, accs, overall_best_mean, overall_std)
+
+            print """
+BEST HYPERPARAMS!... {}
+BEST ARCHITECTURE!... {}
+median = {}
+mean = {}""".format(hyperparams, architecture, np.median(accs), overall_best_mean)
+#
+            #with open(OUTFILES['performance'], 'w') as f:
+                #f.write("""k-fold cross-validation accuracies at selected epoch:
+    #{}
+#
+#Mean: {}
+#STDEV: {}
+#Median: {}
+#IQR: {}
+#Range: {}
+#""".format('\n    '.join(str(a) for a in accs),
+           #overall_best_mean, overall_std, np.median(accs),
+           #np.subtract(*np.percentile(accs, [75, 25])), np.ptp(accs)))
+#
+    #hyperparams['epochs'] = stopping_epoch
+#
+        return best_model # (hyperparams, architecture)
 
 
 ########################################################################################
@@ -490,6 +563,8 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
     """Preprocess training data, use grid search of all combinatorial possibilities
     for given hyperparameters and layer architecture to tune artificial neural net
     model, and save files necessary for resurrection of tuned model"""
+    KWARGS = {'seed': seed, 'num_cores': num_cores, 'verbose': verbose}
+
     df = pd.read_csv(file_in)
     assert sum(df.isnull().any()) == False
 
@@ -498,8 +573,7 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
     with open(OUTFILES['targets'], 'w') as f:
         f.write(','.join(targets))
 
-    # preprocess features
-    data = DataIO(df, target_label, DataIO.gaussianNorm, [-10, 10])
+    # TODO: split into outer cross_val, then preprocess
 
     # extract raw features mean, stddev from test set to use for all preprocessing
     raw_features, _ = DataIO(df, target_label).splitXY()
@@ -508,68 +582,12 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
          with open(OUTFILES[k], 'w') as f:
              param.to_csv(f)
 
-    # tune hyperparameters, architecture
-    combos = combinatorialGridSearch(d_hyperparams, d_architectures)
-    overall_best_mean, overall_std = 0, 0
+    # preprocess features
+    data = DataIO(df, target_label, DataIO.gaussianNorm, [-10, 10])
 
-    for hyperparams, architecture in combos:
-        architecture[0] = architecture[0]._replace(nodes = data.n_features)
-        architecture[-1] = architecture[-1]._replace(nodes = len(targets))
-
-        model = Model(hyperparams, architecture, seed = seed)
-        model.kFoldTrain(data, k = 10, verbose = verbose, num_cores = num_cores)
-
-        print """
-HYPERPARAMS: {}
-LAYERS:
-    {}
-MAX CROSS-VAL ACCURACIES: {}
-AT EPOCHS: {}
-""".format(model.hyperparams, '\n    '.join(str(l) for l in model.layers),
-           model.best_cross_vals, model.best_stopping_epochs)
-
-        # find epoch with best mean cross-val accuracy across all k folds of training
-        mean_accs = [np.mean(accs) for accs in itertools.izip(*model.l_cross_vals)]
-        i, best_mean = max(enumerate(mean_accs), key = lambda x: x[1])
-
-        # accuracies at `best` epoch across k folds
-        selected_accs = [cross_vals[i] for cross_vals in model.l_cross_vals]
-        std = np.std(selected_accs)
-
-        if best_mean > overall_best_mean or (best_mean == overall_best_mean and
-                                             std < overall_std):
-            overall_best_mean, overall_std = best_mean, std
-            stopping_epoch = i + 1 # list of accuracies starts after epoch 1
-            accs = selected_accs
-            best_model = (hyperparams, architecture)
-            print """
-New best model!
-Accuracies at epoch {}: {}
-Mean: {} +/- {}
-""".format(stopping_epoch, accs, overall_best_mean, overall_std)
-
-    hyperparams, architecture = best_model
-
-    print """
-BEST HYPERPARAMS!... {}
-BEST ARCHITECTURE!... {}
-median = {}
-mean = {}""".format(hyperparams, architecture, np.median(accs), overall_best_mean)
-
-    with open(OUTFILES['performance'], 'w') as f:
-        f.write("""k-fold cross-validation accuracies at selected epoch:
-    {}
-
-Mean: {}
-STDEV: {}
-Median: {}
-IQR: {}
-Range: {}
-""".format('\n    '.join(str(a) for a in accs),
-           overall_best_mean, overall_std, np.median(accs),
-           np.subtract(*np.percentile(accs, [75, 25])), np.ptp(accs)))
-
-    hyperparams['epochs'] = stopping_epoch
+    tuner = GridSearch(d_hyperparams, d_architectures)
+    hyperparams, architecture = tuner.tuneParams(data, n_targets = len(targets),
+                                                 **KWARGS)
 
     with open(OUTFILES['model_params'], 'w') as f:
         f.write("""HYPERPARAMS:
