@@ -133,18 +133,15 @@ Warning: categorical values not encoded...no targets labeled `{}`
 # ARTIFICIAL NEURAL NET
 
 class Model():
-    def __init__(self, hyperparams = None, layers = None, graph_def = None, seed = None):
+    def __init__(self, hyperparams = None, layers = None, graph_def = None):
         """Artificial neural net with architecture according to given layers,
         training according to given hyperparameters
 
         Args: hyperparams (dictionary) - model hyperparameters
               layers (list) - sequential Layer objects
               graph_def (filepath) - model binary to restore
-              seed (int) - optional random seed to persist random variable
-                initialization repeatably across sessions
         """
         tf.reset_default_graph()
-        tf.set_random_seed(seed)
 
         if hyperparams and layers:
             # turn off dropout, l2 reg, max epochs if not specified
@@ -249,7 +246,7 @@ class Model():
 
         return (x_in, y, dropout, accuracy, cost, train_op)
 
-    def kFoldTrain(self, data, k = 10, verbose = False, num_cores = None):
+    def kFoldTrain(self, data, k = 10, verbose = False, num_cores = None, seed = None):
         """Train model using k-fold cross-validation of full set of training data"""
         # highest cross-validation accuracy per fold
         self.best_cross_vals = []
@@ -268,7 +265,7 @@ class Model():
                        for k, v in (('train', train), ('validate', validate))}
 
             cross_vals = self.train(streams, len(train), verbose = verbose,
-                                    num_cores = num_cores)
+                                    num_cores = num_cores, seed = seed)
 
             self.l_cross_vals.append(cross_vals)
             self.best_cross_vals.append(self.record_cross_val)
@@ -276,8 +273,8 @@ class Model():
 
         assert len(self.l_cross_vals) == k
 
-    def train(self, data_dict, n_train, verbose = False, num_cores = 0,
-              save = False, outfile = './graph_def',
+    def train(self, data_dict, n_train, seed = None, verbose = False,
+              num_cores = 0, save = False, outfile = './graph_def',
               logging = False, logdir = './log'):
         """Train on training data and, if supplied, cross-validate accuracy of
         validation data at every epoch.
@@ -285,6 +282,8 @@ class Model():
         Args: data_dict (dictionary) - containing `train` (&, optionally, `validate`)
                 key/s + corresponding iterable streams of (x, y) tuples
               n_train (int) - size of training data
+              seed (int) - optional random seed to persist random variable
+                initialization repeatably across sessions
               verbose (bool) - print to STDOUT to monitor cost/accuracy
               num_cores (int) - number of cores to use for TensorFlow operations
                  (defaults to all cores detected automatically)
@@ -299,6 +298,7 @@ class Model():
         validate = 'validate' in data_dict.iterkeys()
         cross_vals = []
 
+        tf.set_random_seed(seed)
         config = tf.ConfigProto(inter_op_parallelism_threads = num_cores,
                                 intra_op_parallelism_threads = num_cores)
 
@@ -582,9 +582,10 @@ ARCHITECTURE:
     datastream = {'train': data.stream(batchsize = hyperparams['n_minibatch'],
                                        max_iter = stopping_epoch)}
 
-    model = Model(hyperparams, architecture, seed = seed)
+    model = Model(hyperparams, architecture)
     model.train(datastream, data.len_, num_cores = num_cores, verbose = True,
                 save = True, outfile = OUTFILES['graph_def'], logging = True)
+
     print "Trained model saved to: {}".format(OUTFILES['graph_def'])
 
 
