@@ -15,22 +15,27 @@ INFILE = './assignment/test_potus_by_county.csv'
 # ARTIFICIAL NEURAL NET
 
 class Model(Model):
-    def predict(self, data, num_cores = None):
+    def predict(self, data):
         """Restore Model values for trained variables & generate output from test dataset
 
         Returns: np.array of indices corresponding to categorical predictions
         """
-        config = (tf.ConfigProto(inter_op_parallelism_threads = num_cores,
-                                intra_op_parallelism_threads = num_cores)
-                  if num_cores else None)
-
-        with tf.Session(config = config) as sesh:
+        with tf.Session() as sesh:
             # restore saved weights, biases
-            assign_ops = [op for op in tf.Graph.get_operations(sesh.graph)
-                          if 'assign_ops' in op.name]
+            #assign_ops = sesh.graph.get_collection('assign_ops')
+            #sesh.run(sesh.graph.get_collection('assign_ops'))
+            KEY = 'assign_ops/'
+            assign_ops = [op for op in sesh.graph.get_operations()
+                          if op.name.startswith(KEY)]
             sesh.run(assign_ops)
-            print 'Restored: {}'.format(','.join(op.name for op in assign_ops))
+            print """Restored (trained) values:
+    {}
+""".format('\n    '.join(op.name[len(KEY):] for op in assign_ops
+                         if not op.name.endswith('value')))
+
             x, _ = data.next()
+            import code; code.interact(local=locals())
+            print x
             feed_dict = {self.x: x, self.dropout: 1.0}
             predictions = sesh.run(self.predictions, feed_dict)
 
@@ -58,7 +63,9 @@ def doWork(file_in = INFILE):
     prediction_targets = (targets[i] for i in predictions)
 
     with open(OUTFILES['predictions'], 'w') as f:
-        f.write('\n'.join(prediction_targets))
+        f.write('\n'.join(prediction_targets) + '\r')
+
+    print "Predictions saved to: {}".format(OUTFILES['predictions'])
 
 
 ########################################################################################
