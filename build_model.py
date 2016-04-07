@@ -143,6 +143,7 @@ class Model():
               seed (int) - optional random seed to persist random variable
                 initialization repeatably across sessions
         """
+        tf.reset_default_graph()
         tf.set_random_seed(seed)
 
         if hyperparams and layers:
@@ -163,8 +164,8 @@ class Model():
                 graph_def.ParseFromString(f.read())
 
             self.x, self.dropout, self.predictions = tf.import_graph_def(
-                graph_def, return_elements = ['x:0', 'dropout:0', 'predictions:0'],
-                name = '')
+                graph_def, name = '', return_elements =
+                ['x:0', 'dropout:0', 'accuracy/predictions:0'])
 
         else:
             raise(ValueError, 'Must supply hyperparameters and layer architecture to initialize Model, or supply graph definition to restore previous Model graph')
@@ -176,8 +177,8 @@ class Model():
         Returns: tensorflow scalar (i.e. averaged over minibatch)
         """
         # bound values by clipping to avoid nan
-        return -tf.reduce_mean(actual*tf.log(tf.clip_by_value(observed, 1e-10, 1.0)),
-                               name='cross_entropy')
+        with tf.name_scope('cross_entropy'):
+            return -tf.reduce_mean(actual*tf.log(tf.clip_by_value(observed, 1e-10, 1.0)))
 
     def _buildGraph(self):
         """Build TensorFlow graph representing neural net with desired architecture +
@@ -188,39 +189,51 @@ class Model():
 
         def wbVars(nodes_in, nodes_out, scope):
             """Helper to initialize trainable weights & biases"""
+            #with tf.name_scope(scope):
             initial_w = tf.truncated_normal([nodes_in, nodes_out],
                                             #stddev = (2/nodes_in)**0.5)
-                                            stddev = nodes_in**-0.5)
-            initial_b = tf.random_normal([nodes_out])
-            #initial_b = tf.zeros([nodes_out]) # TODO: test me!
-            with tf.name_scope(scope):
-                return (tf.Variable(initial_w, trainable=True, name='weights'),
-                        tf.Variable(initial_b, trainable=True, name='biases'))
+                                            stddev = nodes_in**-0.5, name =
+                                            '{}/truncated_normal'.format(scope))
+            initial_b = tf.random_normal([nodes_out], name =
+                                         '{}/random_normal'.format(scope))
 
+            return (tf.Variable(initial_w, trainable=True, name='{}/weights'.format(scope)),
+                    tf.Variable(initial_b, trainable=True, name='{}/biases'.format(scope)))
+
+        #ws_and_bs = (wbVars(in_.nodes, out.nodes)
+                     #for in_, out in zip(self.layers, self.layers[1:]))
         ws_and_bs = [wbVars(in_.nodes, out.nodes, out.name)
                      for in_, out in zip(self.layers, self.layers[1:])]
 
         dropout = tf.placeholder(tf.float32, name='dropout')
+
+        #for i, layer in enumerate(self.layers[1:]):
+            #with tf.name_scope(layer.name):
+                #w, b = ws_and_bs.next()
+                ## add dropout to hidden but not input weights
+                #if i > 0:
+                    #w = tf.nn.dropout(w, dropout)
+                #xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w, b)))
         for i, layer in enumerate(self.layers[1:]):
             w, b = ws_and_bs[i]
-            # add dropout to hidden but not input weights
-            if i > 0:
-                w = tf.nn.dropout(w, dropout)
-            xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w, b),
-                                       name = '{}/activation'.format(
-                                           layer.name)))
+            with tf.name_scope(layer.name):
+                # add dropout to hidden but not input weights
+                if i > 0:
+                    w = tf.nn.dropout(w, dropout)
+                xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w, b)))
 
         # use identity to set explicit name for output node
         y_out = tf.identity(xs[-1], name='y_out')
         y = tf.placeholder(tf.float32, shape=[None, 2], name='y')
 
         # cost & training
-        lmbda = tf.constant(self.hyperparams['lambda_l2_reg'], tf.float32,
-                            name='lambda')
-        l2_loss = tf.add_n([tf.nn.l2_loss(w) for w, _ in ws_and_bs])
-        cost = tf.add(tf.mul(lmbda, l2_loss, name='l2_regularization'),
-                      Model.crossEntropy(y_out, y), name='cost')
+        with tf.name_scope('l2_regularization'):
+            lmbda = tf.constant(self.hyperparams['lambda_l2_reg'], tf.float32,
+                                name='lambda')
+            l2_loss = tf.add_n([tf.nn.l2_loss(w) for w, _ in ws_and_bs])
+            weighted_l2_loss = tf.mul(lmbda, l2_loss)
 
+        cost = tf.add(weighted_l2_loss, Model.crossEntropy(y_out, y), name='cost')
         train_op = tf.train.AdamOptimizer(self.hyperparams['learning_rate'])\
                                           .minimize(cost)
         #tvars = tf.trainable_variables()
@@ -228,9 +241,10 @@ class Model():
         # TODO: cap gradients ? learning rate decay ?
         #train_op = tf.train.GradientDescentOptimizer(self.hyperparams['learning_rate'])\
                            #.apply_gradients(zip(grads, tvars))
-        predictions = tf.argmax(y_out, 1, name = 'predictions')
-        accuracy = tf.reduce_mean(tf.cast(tf.equal(predictions, tf.argmax(y, 1)),
-                                          tf.float32), name='accuracy')
+        with tf.name_scope('accuracy'):
+            predictions = tf.argmax(y_out, 1, name = 'predictions')
+            accuracy = tf.reduce_mean(tf.cast(tf.equal(predictions,
+                                                       tf.argmax(y, 1)), tf.float32))
 
         return (x_in, y, dropout, accuracy, cost, train_op)
 
@@ -262,7 +276,8 @@ class Model():
         assert len(self.l_cross_vals) == k
 
     def train(self, data_dict, n_train, verbose = False, num_cores = 0,
-              save = False, outfile = './graph_def'):
+              save = False, outfile = './graph_def',
+              logging = False, logdir = './log'):
         """Train on training data and, if supplied, cross-validate accuracy of
         validation data at every epoch.
 
@@ -288,6 +303,10 @@ class Model():
 
         with tf.Session(config = config) as sesh:
             sesh.run(tf.initialize_all_variables())
+
+            #if logging:
+            logger = tf.train.SummaryWriter(logdir, sesh.graph_def)
+
             #while len(cross_vals) < self.hyperparams['epochs']:
             try:
                 for i, (x, y) in enumerate(data_dict['train'], 1):
@@ -324,6 +343,10 @@ Current cross-val accuracies: {}
                 self._freeze()
                 with open(outfile, 'wb') as f:
                     f.write(sesh.graph_def.SerializeToString())
+
+            #if logging:
+            logger.flush()
+                #logger.close()
 
         if validate:
             assert len(cross_vals) == self.hyperparams['epochs']
@@ -548,8 +571,9 @@ ARCHITECTURE:
                                        max_iter = stopping_epoch)}
 
     model = Model(hyperparams, architecture, seed = seed)
-    model.train(datastream, data.len_, num_cores = num_cores, verbose = verbose,
-                save = True, outfile = OUTFILES['graph_def'])
+    model.train(datastream, data.len_, num_cores = num_cores, verbose = True,
+                save = True, outfile = OUTFILES['graph_def'], logging = True)
+    print "Trained model saved to: {}".format(OUTFILES['graph_def'])
 
 
 ########################################################################################
