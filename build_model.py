@@ -1,7 +1,6 @@
 from __future__ import division
 import itertools
 from collections import namedtuple
-import sys
 import re
 
 import numpy as np
@@ -61,7 +60,8 @@ class DataIO:
         except(ValueError):
             # ignore test data with no targets - but don't fail silently
             print """
-Warning: categorical values not encoded...no targets labeled `{}` found""".format(target_str)
+Warning: categorical values not encoded...no targets labeled `{}`
+""".format(target_str)
             encoded = self.df
         return encoded
 
@@ -333,11 +333,11 @@ class Model():
                                 i // iters_per_epoch, accuracy)
 
             except(KeyboardInterrupt):
-                sys.exit("""
-
+                print """
 Epochs: {}
 Current cross-val accuracies: {}
-                """.format(i / iters_per_epoch, cross_vals))
+""".format(i / iters_per_epoch, cross_vals)
+                raise
 
             if save:
                 self._freeze()
@@ -361,9 +361,7 @@ Current cross-val accuracies: {}
     LAYERS:
     {}
     MAX CROSS-VAL ACCURACY (at epoch {}): {}
-                """.format(self.hyperparams,
-                            '\n    '.join(str(l) for l in self.layers),
-                            i, max_)
+""".format(self.hyperparams, '\n    '.join(str(l) for l in self.layers), i, max_)
 
         return cross_vals
 
@@ -512,9 +510,8 @@ LAYERS:
     {}
 MAX CROSS-VAL ACCURACIES: {}
 AT EPOCHS: {}
-        """.format(model.hyperparams,
-                   '\n    '.join(str(l) for l in model.layers),
-                   model.best_cross_vals, model.best_stopping_epochs)
+""".format(model.hyperparams, '\n    '.join(str(l) for l in model.layers),
+           model.best_cross_vals, model.best_stopping_epochs)
 
         # find epoch with best mean cross-val accuracy across all k folds of training
         mean_accs = [np.mean(accs) for accs in itertools.izip(*model.l_cross_vals)]
@@ -534,7 +531,7 @@ AT EPOCHS: {}
 New best model!
 Accuracies at epoch {}: {}
 Mean: {} +/- {}
-            """.format(stopping_epoch, accs, overall_best_mean, overall_std)
+""".format(stopping_epoch, accs, overall_best_mean, overall_std)
 
     hyperparams, architecture = best_model
 
@@ -553,19 +550,19 @@ STDEV: {}
 Median: {}
 IQR: {}
 Range: {}
-        """.format('\n    '.join(str(a) for a in accs),
-                    overall_best_mean, overall_std, np.median(accs),
-                    np.subtract(*np.percentile(accs, [75, 25])), np.ptp(accs)))
+""".format('\n    '.join(str(a) for a in accs),
+           overall_best_mean, overall_std, np.median(accs),
+           np.subtract(*np.percentile(accs, [75, 25])), np.ptp(accs)))
 
     hyperparams['epochs'] = stopping_epoch
 
     with open(OUTFILES['model_params'], 'w') as f:
-        f.write("""
-HYPERPARAMS:
+        f.write("""HYPERPARAMS:
     {}
+
 ARCHITECTURE:
     {}
-        """.format(hyperparams, '\n    '.join(str(l) for l in architecture)))
+""".format(hyperparams, '\n    '.join(str(l) for l in architecture)))
 
     datastream = {'train': data.stream(batchsize = hyperparams['n_minibatch'],
                                        max_iter = stopping_epoch)}
@@ -579,4 +576,4 @@ ARCHITECTURE:
 ########################################################################################
 
 if __name__ == '__main__':
-    doWork_combinatorial(seed = SEED, num_cores = NUM_CORES)
+    doWork_combinatorial(TRAINING_DATA, seed = SEED, num_cores = NUM_CORES)
