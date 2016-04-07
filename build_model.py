@@ -195,8 +195,10 @@ class Model():
             initial_b = tf.random_normal([nodes_out], name =
                                          '{}/random_normal'.format(scope))
 
-            return (tf.Variable(initial_w, trainable=True, name='{}/weights'.format(scope)),
-                    tf.Variable(initial_b, trainable=True, name='{}/biases'.format(scope)))
+            return (tf.Variable(initial_w, trainable=True,
+                                name='{}/weights'.format(scope)),
+                    tf.Variable(initial_b, trainable=True,
+                                name='{}/biases'.format(scope)))
 
         #ws_and_bs = (wbVars(in_.nodes, out.nodes)
                      #for in_, out in zip(self.layers, self.layers[1:]))
@@ -529,25 +531,23 @@ TARGET_LABEL = 'Winner'
 OUTFILES = {'targets': './targets.csv',
             'preprocessing_means': './preprocessing_means.csv',
             'preprocessing_stddevs': './preprocessing_stddevs.csv',
-            'train': './data_training_cleaned.csv',
-            'validate': './data_validation_cleaned.csv',
-            'model_params': './model_params.txt',
+            'model_params': './model_training_params.txt',
             'graph_def': './graph_def.bin',
             'performance': './performance.txt'}
 
-HYPERPARAM_GRID = {'learning_rate': [0.01, 0.05, 0.1],
+HYPERPARAM_GRID = {'learning_rate': [0.05],#[0.01, 0.05, 0.1],
                    # keep probability for dropout (1 for none)
-                   'dropout': [0.5, 0.7, 1],
+                   'dropout': [0.7],#[0.5, 0.7, 1],
                    # lambda for L2 regularization (0 for none)
-                   'lambda_l2_reg': [0, 1E-5, 1E-4, 1E-3],
+                   'lambda_l2_reg': [1E-5],#[0, 1E-5, 1E-4, 1E-3],
                    'n_minibatch': [100],
                    'epochs': [100]}
 
-HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu, tf.nn.sigmoid],# tf.nn.tanh],
-                     'hidden_nodes': [[10],
-                                      [10, 7],
-                                      [10, 10],
-                                      [10, 7, 7]]}
+HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu],# tf.nn.tanh],# tf.nn.sigmoid],
+                     'hidden_nodes': [[10]]}#,
+                                      #[10, 7],
+                                      #[10, 10],
+                                      #[10, 7, 7]]}
 
 SEED = 47
 
