@@ -159,6 +159,7 @@ class Model():
 
         elif graph_def:
             # restore from previously saved Graph
+            #graph = tf.train.import_meta_graph(graph_def)
             with open(graph_def, 'rb') as f:
                 graph_def = tf.GraphDef()
                 graph_def.ParseFromString(f.read())
@@ -340,6 +341,11 @@ Current cross-val accuracies: {}
                 raise
 
             if save:
+                #KEY = 'assign_ops'
+                #self._freeze(key = KEY)
+                #tf.train.export_meta_graph(outfile, collection_list = [KEY],
+                                           #graph_def = sesh.graph_def,
+                                           #saver_def = tf.train.SaverDef())
                 self._freeze()
                 with open(outfile, 'wb') as f:
                     f.write(sesh.graph_def.SerializeToString())
@@ -365,14 +371,23 @@ Current cross-val accuracies: {}
 
         return cross_vals
 
-    def _freeze(self):
+    def _freeze(self):#, key = 'assign_ops'):
         """Add nodes to assign weights & biases to constants containing current
-        trained values, enabling them to be saved by TensorFlow's graph_def"""
+        trained values, enabling them to be saved by TensorFlow's graph_def
+#
+        #Args: key (string) - corresponding to graph collection for easy resurrection
+        """
         regex = re.compile('^[^:]*') # string up to first `:`
         with tf.name_scope('assign_ops'):
             for tvar in tf.trainable_variables():
-                tf.assign(tvar, tvar.eval(),
-                          name = re.match(regex, tvar.name).group(0))
+                tf.assign(tvar, tvar.eval(), name =
+                          re.match(regex, tvar.name).group(0))
+                #op = tf.assign(tvar, tvar.eval(), name =
+                               #re.match(regex, tvar.name).group(0))
+                #tf.get_default_graph().add_to_collection(key, op)
+
+        # TODO: subgraph ?
+        # tf.nn.graph_util.extract_sub_graph(end_node)
 
 
 ########################################################################################
