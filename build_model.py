@@ -299,6 +299,7 @@ class Model():
 
         validate = 'validate' in data_dict.iterkeys()
         cross_vals = []
+        best_acc = 0
 
         tf.set_random_seed(seed)
         config = tf.ConfigProto(inter_op_parallelism_threads = num_cores,
@@ -330,6 +331,9 @@ class Model():
                                     self.dropout: 1.0} # keep prob 1
                         accuracy = sesh.run(self.accuracy, feed_dict)
                         cross_vals.append(accuracy)
+                        if accuracy > best_acc:
+                            best_acc = accuracy
+                        cost_at_best_acc = cost
 
                         if verbose:
                             print 'CROSS VAL accuracy at epoch {}: {}'.format(
@@ -371,6 +375,8 @@ Current cross-val accuracies: {}
     MAX CROSS-VAL ACCURACY (at epoch {}): {}
 """.format(self.hyperparams, '\n    '.join(str(l) for l in self.layers), i, max_)
 
+        print "BEST ACCURACY: ", best_acc
+        print "CORRESPONDING COST: ", cost_at_best_acc
         return cross_vals
 
     def _freeze(self):#, key = 'assign_ops'):
@@ -574,6 +580,7 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
         f.write(','.join(targets))
 
     # TODO: split into outer cross_val, then preprocess
+    #outer_test, outer_validate = pd.
 
     # extract raw features mean, stddev from test set to use for all preprocessing
     raw_features, _ = DataIO(df, target_label).splitXY()
@@ -601,8 +608,8 @@ ARCHITECTURE:
                                        max_iter = stopping_epoch)}
 
     model = Model(hyperparams, architecture)
-    model.train(datastream, data.len_, num_cores = num_cores, verbose = True,
-                save = True, outfile = OUTFILES['graph_def'], logging = True)
+    model.train(datastream, data.len_, logging = True, save = True,
+                outfile = OUTFILES['graph_def'], **KWARGS)
 
     print "Trained model saved to: {}".format(OUTFILES['graph_def'])
 
