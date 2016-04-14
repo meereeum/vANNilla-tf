@@ -1,3 +1,7 @@
+from __future__ import division
+import re
+
+import numpy as np
 import pandas as pd
 import tensorflow as tf
 
@@ -15,7 +19,7 @@ INFILE = './assignment/test_potus_by_county.csv'
 # ARTIFICIAL NEURAL NET
 
 class Model(Model):
-    def predict(self, data):
+    def predict(self, data, epoch_to_restore = None):
         """Restore Model values for trained variables & generate output from test dataset
 
         Returns: np.array of indices corresponding to categorical predictions
@@ -24,9 +28,20 @@ class Model(Model):
             # restore saved weights, biases
             #assign_ops = sesh.graph.get_collection('assign_ops')
             #sesh.run(sesh.graph.get_collection('assign_ops'))
-            KEY = 'assign_ops/'
-            assign_ops = [op for op in sesh.graph.get_operations()
-                          if op.name.startswith(KEY)]
+            ops = sesh.graph.get_operations()
+
+            # restore weights, biases from last frozen checkpoint
+            if not epoch_to_restore:
+                match = re.compile("^assign_ops_([^\/]*)").match
+                #assign_op_epochs = {m.group(1) for m in map(
+                    #match, (op.name for op in ops)) if m}
+                # iterable match to avoid `None` as match object
+                assign_op_epochs = {m.group(1) for op in ops
+                                    for m in [match(op.name)] if m}
+                epoch_to_restore = max(map(int, assign_op_epochs))
+
+            KEY = 'assign_ops_{}/'.format(epoch_to_restore)
+            assign_ops = [op for op in ops if op.name.startswith(KEY)]
             sesh.run(assign_ops)
             print """Restored (trained) values:
     {}
@@ -63,9 +78,18 @@ def doWork(file_in = INFILE):
     prediction_targets = (targets[i] for i in predictions)
 
     with open(OUTFILES['predictions'], 'w') as f:
-        f.write('\n'.join(prediction_targets) + '\r')
+        f.write('\n'.join(prediction_targets) + '\n')
 
     print "Predictions saved to: {}".format(OUTFILES['predictions'])
+
+    # if test data is labeled, print accuracy
+    if data.n_targets > 0:
+        _, y = data.splitXY()
+        actual = [np.argmax(one_hot) for one_hot in y.values]
+        assert len(actual) == len(predictions)
+        correct = sum(y_out == y_actual for y_out, y_actual
+                      in zip(predictions, actual))
+        print "accuracy: ", correct/len(predictions)
 
 
 ########################################################################################
