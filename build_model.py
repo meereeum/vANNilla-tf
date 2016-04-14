@@ -247,30 +247,30 @@ class Model():
 
     def kFoldTrain(self, data, k = 10, verbose = False, num_cores = None, seed = None):
         """Train model using k-fold cross-validation of full set of training data"""
-        # highest cross-validation accuracy per fold
-        self.best_cross_vals = []
-        # earliest epoch corresponding to highest cross-val accuracy per fold
-        self.best_stopping_epochs = []
-        # list of lists of each cross-validation accuracy per epoch, across all folds
-        self.l_cross_vals = []
+        results = {'best_cross_vals': [], # highest cross-val accuracy (per fold)
+                   'best_stopping_epochs': [], # corresponding epoch (per fold)
+                   'l_cross_vals': []} # nested list of cross-val accs over all epochs, all folds
 
         STREAM_KWARGS = {'train': {'batchsize': self.hyperparams['n_minibatch'],
                                    'max_iter': self.hyperparams['epochs']},
                          'validate': {}}
 
         for train, validate in data.kFoldCrossVal(k):
-            # train on (k-1) folds
+            # train on (k-1) folds, cross-validate on kth
             streams = {k: data.stream(v, **STREAM_KWARGS[k])
                        for k, v in (('train', train), ('validate', validate))}
 
             cross_vals = self.train(streams, len(train), verbose = verbose,
                                     num_cores = num_cores, seed = seed)
 
-            self.l_cross_vals.append(cross_vals)
-            self.best_cross_vals.append(self.record_cross_val)
-            self.best_stopping_epochs.append(self.record_epoch)
+            i, max_ = max(enumerate(cross_vals, 1), key = lambda x: (x[1], x[0]))
 
-        assert len(self.l_cross_vals) == k
+            results['l_cross_vals'] += [cross_vals]
+            results['best_cross_vals'] += [max_]
+            results['best_stopping_epochs'] += [i]
+
+        #assert len(results['l_cross_vals']) == k
+        return results
 
     def train(self, data_dict, n_train, seed = None, verbose = False,
               num_cores = 0, save = False, outfile = './graph_def',
@@ -358,12 +358,9 @@ Current cross-val accuracies: {}
 
         if validate:
             assert len(cross_vals) == self.hyperparams['epochs']
-            # find earliest epoch corresponding to best cross-validation accuracy
-            i, max_ = max(enumerate(cross_vals, 1), key = lambda x: x[1])
-            self.record_epoch = i
-            self.record_cross_val = max_
-
+            # find xxearliestxx TODO last ? epoch corresponding to best cross-validation accuracy
             if verbose:
+                i, max_ = max(enumerate(cross_vals, 1), key = lambda x: (x[1], x[0]))
                 print """
     HYPERPARAMS: {}
     LAYERS:
@@ -464,14 +461,15 @@ class GridSearch():
         and layer architecture with ____ TODO
         """
         overall_best_mean, overall_std = 0, 0
+        best_accs = []
 
         for hyperparams, architecture in self.iterCombos():
             architecture[0] = architecture[0]._replace(nodes = data.n_features)
             architecture[-1] = architecture[-1]._replace(nodes = data.n_targets)
 
             model = Model(hyperparams, architecture)
-            model.kFoldTrain(data, k = k, verbose = verbose,
-                             num_cores = num_cores, seed = seed)
+            results = model.kFoldTrain(data, k = k, verbose = verbose,
+                                       num_cores = num_cores, seed = seed)
 
             print """
 HYPERPARAMS: {}
@@ -480,49 +478,27 @@ LAYERS:
 MAX CROSS-VAL ACCURACIES: {}
 AT EPOCHS: {}
 """.format(model.hyperparams, '\n    '.join(str(l) for l in model.layers),
-           model.best_cross_vals, model.best_stopping_epochs)
+           results['best_cross_vals'], results['best_stopping_epochs'])
 
-            # find epoch with best mean cross-val accuracy across all k folds of training
-            mean_accs = [np.mean(accs) for accs in itertools.izip(*model.l_cross_vals)]
-            i, best_mean = max(enumerate(mean_accs), key = lambda x: x[1])
-
-            # accuracies at `best` epoch across k folds
-            selected_accs = [cross_vals[i] for cross_vals in model.l_cross_vals]
-            std = np.std(selected_accs)
-
-            if best_mean > overall_best_mean or (best_mean == overall_best_mean and
-                                                std < overall_std):
-                overall_best_mean, overall_std = best_mean, std
-                stopping_epoch = i + 1 # list of accuracies starts after epoch 1
-                accs = selected_accs
+            best_cross_vals = results['best_cross_vals']
+            mean = np.mean(best_cross_vals)
+            std = np.std(best_cross_vals)
+            if mean > overall_best_mean or (
+                    mean == overall_best_mean and std < overall_std):
+                overall_best_mean, overall_std = mean, std
+                best_accs = best_cross_vals
                 best_model = (hyperparams, architecture)
                 print """
 New best model!
-Accuracies at epoch {}: {}
 Mean: {} +/- {}
-""".format(stopping_epoch, accs, overall_best_mean, overall_std)
+""".format(overall_best_mean, overall_std)
 
-            print """
+        print """
 BEST HYPERPARAMS!... {}
 BEST ARCHITECTURE!... {}
 median = {}
-mean = {}""".format(hyperparams, architecture, np.median(accs), overall_best_mean)
-#
-            #with open(OUTFILES['performance'], 'w') as f:
-                #f.write("""k-fold cross-validation accuracies at selected epoch:
-    #{}
-#
-#Mean: {}
-#STDEV: {}
-#Median: {}
-#IQR: {}
-#Range: {}
-#""".format('\n    '.join(str(a) for a in accs),
-           #overall_best_mean, overall_std, np.median(accs),
-           #np.subtract(*np.percentile(accs, [75, 25])), np.ptp(accs)))
-#
-    #hyperparams['epochs'] = stopping_epoch
-#
+mean = {}""".format(hyperparams, architecture, np.median(best_accs), overall_best_mean)
+
         return best_model # (hyperparams, architecture)
 
 
