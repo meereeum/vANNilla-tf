@@ -39,6 +39,11 @@ class DataIO:
         x, _ = self.splitXY()
         return x.shape[1]
 
+    @property
+    def n_targets(self):
+        _, y = self.splitXY()
+        return y.shape[1]
+
     def splitXY(self, df = None):
         """Split given DataFrame into DataFrames representing features & targets"""
         df = df if isinstance(df, pd.DataFrame) else self.df # <-- default
@@ -459,9 +464,10 @@ class GridSearch():
 
         return itertools.product(HYPERPARAMS, ARCHITECTURES)
 
-    def tuneParams(self, data, n_targets, seed = None, num_cores = None,
-                   verbose = False, k = 10):
-        """Tune hyperparameters, architecture
+    def tuneParams(self, data, k = 10, seed = None, num_cores = None,
+                   verbose = False):
+        """Tune hyperparameters, architecture using k-fold cross-validation of
+        input `data` (DataIO object)
 
         Args: TODO
         """
@@ -469,7 +475,7 @@ class GridSearch():
 
         for hyperparams, architecture in self.iterCombos():
             architecture[0] = architecture[0]._replace(nodes = data.n_features)
-            architecture[-1] = architecture[-1]._replace(nodes = n_targets)
+            architecture[-1] = architecture[-1]._replace(nodes = data.n_targets)
 
             model = Model(hyperparams, architecture)
             model.kFoldTrain(data, k = k, verbose = verbose,
