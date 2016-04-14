@@ -546,6 +546,12 @@ NUM_CORES = 3
 
 ########################################################################################
 
+def splitTrainValidate(df, perc_training = 0.8):
+    """Split dataframe into training and validation sets based on given %"""
+    train = df.sample(frac=perc_training)#, random_state=200)
+    validate = df.drop(train.index)
+    return (train, validate)
+
 def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
                          d_hyperparams = HYPERPARAM_GRID,
                          d_architectures = HIDDEN_LAYER_GRID,
@@ -563,39 +569,56 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
     with open(OUTFILES['targets'], 'w') as f:
         f.write(','.join(targets))
 
-    # TODO: split into outer cross_val, then preprocess
-    #outer_test, outer_validate = pd.
+    # nested validation
+    outer_train, outer_validate = splitTrainValidate(df, perc_training=0.8)
 
-    # extract raw features mean, stddev from test set to use for all preprocessing
-    raw_features, _ = DataIO(df, target_label).splitXY()
+    # extract raw features mean, stddev from train set to use for all preprocessing
+    raw_features, _ = DataIO(outer_train, target_label).splitXY()
     params = (raw_features.mean(axis=0), raw_features.std(axis=0))
     for k, param in zip(('preprocessing_means', 'preprocessing_stddevs'), params):
          with open(OUTFILES[k], 'w') as f:
              param.to_csv(f)
 
     # preprocess features
-    data = DataIO(df, target_label, DataIO.gaussianNorm, [-10, 10])
+    train = DataIO(outer_train, target_label, DataIO.gaussianNorm, [-10, 10])
 
     tuner = GridSearch(d_hyperparams, d_architectures)
-    hyperparams, architecture = tuner.tuneParams(data, n_targets = len(targets),
-                                                 **KWARGS)
+    hyperparams, architecture = tuner.tuneParams(train, **KWARGS)
 
-    with open(OUTFILES['model_params'], 'w') as f:
-        f.write("""HYPERPARAMS:
-    {}
+    hyperparams['epochs'] = 5000
 
-ARCHITECTURE:
-    {}
-""".format(hyperparams, '\n    '.join(str(l) for l in architecture)))
+    #with open(OUTFILES['model_params'], 'w') as f:
+        #f.write("""HYPERPARAMS:
+    #{}
+#
+#ARCHITECTURE:
+    #{}
+#""".format(hyperparams, '\n    '.join(str(l) for l in architecture)))
 
-    datastream = {'train': data.stream(batchsize = hyperparams['n_minibatch'],
-                                       max_iter = stopping_epoch)}
+    # use train data mean, std to preprocess validation data
+    mean, std = params
+    validate = DataIO(outer_validate, target_label, lambda x:
+                      DataIO.gaussianNorm(x, mean, std), [-10, 10])
+
+    data = {'train': train.stream(batchsize = hyperparams['n_minibatch'],
+                                  max_iter = hyperparams['epochs']),
+            'validate': validate.stream()}
 
     model = Model(hyperparams, architecture)
-    model.train(datastream, data.len_, logging = True, save = True,
-                outfile = OUTFILES['graph_def'], **KWARGS)
+    val_accs = model.train(data, train.len_, logging = True, save = True,
+                           outfile = OUTFILES['graph_def'], **KWARGS)
 
-    print "Trained model saved to: {}".format(OUTFILES['graph_def'])
+    i, max_ = max(enumerate(val_accs, 1), key = lambda x: (x[1], x[0]))
+    print """
+validation accuracies: {}
+BEST: {}
+(at epoch {})""".format(val_accs, max_, i)
+
+    # TODO
+    #with open(OUTFILES['performance'], 'w') as f:
+        #f.write("Estimated accuracy: {}".format(max_))
+
+    print "Trained model saved to: ", OUTFILES['graph_def']
 
 
 ########################################################################################
