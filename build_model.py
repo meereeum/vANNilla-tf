@@ -329,7 +329,8 @@ class Model():
                         cross_vals.append(accuracy)
                         if accuracy > best_acc:
                             best_acc = accuracy
-                        cost_at_best_acc = cost
+                            if save:
+                                self._freeze(epoch = (i // iters_per_epoch))
 
                         if verbose:
                             print 'CROSS VAL accuracy at epoch {}: {}'.format(
@@ -348,13 +349,14 @@ Current cross-val accuracies: {}
                 #tf.train.export_meta_graph(outfile, collection_list = [KEY],
                                            #graph_def = sesh.graph_def,
                                            #saver_def = tf.train.SaverDef())
-                self._freeze()
+                if not validate:
+                    self._freeze(epoch = (i // iters_per_epoch))
                 with open(outfile, 'wb') as f:
                     f.write(sesh.graph_def.SerializeToString())
 
-            #if logging:
-            logger.flush()
-                #logger.close()
+            if logging:
+                logger.flush()
+                logger.close()
 
         if validate:
             assert len(cross_vals) == self.hyperparams['epochs']
@@ -368,18 +370,16 @@ Current cross-val accuracies: {}
     MAX CROSS-VAL ACCURACY (at epoch {}): {}
 """.format(self.hyperparams, '\n    '.join(str(l) for l in self.layers), i, max_)
 
-        print "BEST ACCURACY: ", best_acc
-        print "CORRESPONDING COST: ", cost_at_best_acc
         return cross_vals
 
-    def _freeze(self):#, key = 'assign_ops'):
+    def _freeze(self, epoch):#, key = 'assign_ops'):
         """Add nodes to assign weights & biases to constants containing current
         trained values, enabling them to be saved by TensorFlow's graph_def
 #
         #Args: key (string) - corresponding to graph collection for easy resurrection
         """
         regex = re.compile('^[^:]*') # string up to first `:`
-        with tf.name_scope('assign_ops'):
+        with tf.name_scope('assign_ops_{}'.format(epoch)):
             for tvar in tf.trainable_variables():
                 tf.assign(tvar, tvar.eval(), name =
                           re.match(regex, tvar.name).group(0))
