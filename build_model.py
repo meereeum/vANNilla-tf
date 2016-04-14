@@ -106,14 +106,13 @@ Warning: categorical values not encoded...no targets labeled `{}`
                     finally:
                         x, y = self.splitXY(batched)
                         yield (x.values, y.values)
+                reps += 1
             else:
                 break
 
-            reps += 1
-
     @staticmethod
     def gaussianNorm(df, mean = None, std = None):
-        """Normalize dataframe columns by z-score (mean 0, stddev 1) if params unspecified.
+        """Normalize dataframe columns by z-score (mean 0, stdev 1) if params unspecified.
         Else, center by the given mean & normalize by the given stddev."""
         mean = mean if isinstance(mean, pd.Series) else df.mean(axis=0)
         std = std if isinstance(std, pd.Series) else df.std(axis=0)
@@ -171,7 +170,9 @@ class Model():
                 ['x:0', 'dropout:0', 'accuracy/predictions:0'])
 
         else:
-            raise(ValueError, 'Must supply hyperparameters and layer architecture to initialize Model, or supply graph definition to restore previous Model graph')
+            raise(ValueError,
+                  ('Must supply hyperparameters and layer architecture to initialize Model,'
+                   'or supply graph definition to restore previous Model graph'))
 
     @staticmethod
     def crossEntropy(observed, actual):
@@ -179,8 +180,8 @@ class Model():
 
         Returns: tensorflow scalar (i.e. averaged over minibatch)
         """
-        # bound values by clipping to avoid nan
         with tf.name_scope('cross_entropy'):
+            # bound values by clipping to avoid nan
             return -tf.reduce_mean(actual*tf.log(tf.clip_by_value(observed, 1e-10, 1.0)))
 
     def _buildGraph(self):
@@ -205,20 +206,11 @@ class Model():
                     tf.Variable(initial_b, trainable=True,
                                 name='{}/biases'.format(scope)))
 
-        #ws_and_bs = (wbVars(in_.nodes, out.nodes)
-                     #for in_, out in zip(self.layers, self.layers[1:]))
         ws_and_bs = [wbVars(in_.nodes, out.nodes, out.name)
                      for in_, out in zip(self.layers, self.layers[1:])]
 
         dropout = tf.placeholder(tf.float32, name='dropout')
 
-        #for i, layer in enumerate(self.layers[1:]):
-            #with tf.name_scope(layer.name):
-                #w, b = ws_and_bs.next()
-                ## add dropout to hidden but not input weights
-                #if i > 0:
-                    #w = tf.nn.dropout(w, dropout)
-                #xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w, b)))
         for i, layer in enumerate(self.layers[1:]):
             w, b = ws_and_bs[i]
             with tf.name_scope(layer.name):
@@ -297,7 +289,7 @@ class Model():
               save (bool) - freeze & save trained model binary
               outfile (filepath) - optional path/to/file of model binary
 
-        Returns: list of cross-validation accuracies (empty if no `validate` data)
+        Returns: list of cross-validation accuracies (empty if `train` only)
         """
         iters_per_epoch = (n_train // self.hyperparams['n_minibatch']) + \
                           ((n_train % self.hyperparams['n_minibatch']) != 0)
@@ -313,10 +305,9 @@ class Model():
         with tf.Session(config = config) as sesh:
             sesh.run(tf.initialize_all_variables())
 
-            #if logging:
-            logger = tf.train.SummaryWriter(logdir, sesh.graph_def)
+            if logging:
+                logger = tf.train.SummaryWriter(logdir, sesh.graph_def)
 
-            #while len(cross_vals) < self.hyperparams['epochs']:
             try:
                 for i, (x, y) in enumerate(data_dict['train'], 1):
                     # train
@@ -329,8 +320,8 @@ class Model():
                         print 'cost after iteration {}: {}'.format(i + 1, cost)
                         print 'accuracy: {}'.format(accuracy)
 
+                    # validate
                     if validate and i % iters_per_epoch == 0:
-                        # cross-validate with leftout fold
                         x, y = data_dict['validate'].next()
                         feed_dict = {self.x: x, self.y: y,
                                     self.dropout: 1.0} # keep prob 1
@@ -469,7 +460,8 @@ class GridSearch():
         """Tune hyperparameters, architecture using k-fold cross-validation of
         input `data` (DataIO object)
 
-        Args: TODO
+        Returns: tuple(dict, list of Layers) corresponding to hyperparams
+        and layer architecture with ____ TODO
         """
         overall_best_mean, overall_std = 0, 0
 
@@ -543,23 +535,33 @@ TARGET_LABEL = 'Winner'
 OUTFILES = {'targets': './targets.csv',
             'preprocessing_means': './preprocessing_means.csv',
             'preprocessing_stddevs': './preprocessing_stddevs.csv',
-            'model_params': './model_training_params.txt',
+            #'model_params': './model_training_params.txt',
             'graph_def': './graph_def.bin',
             'performance': './performance.txt'}
 
-HYPERPARAM_GRID = {'learning_rate': [0.05],#[0.01, 0.05, 0.1],
-                   # keep probability for dropout (1 for none)
-                   'dropout': [0.7],#[0.5, 0.7, 1],
-                   # lambda for L2 regularization (0 for none)
-                   'lambda_l2_reg': [1E-5],#[0, 1E-5, 1E-4, 1E-3],
+HYPERPARAM_GRID = {'learning_rate': [0.05],
+                   'dropout': [0.75],
+                   'lambda_l2_reg': [1E-4],
                    'n_minibatch': [100],
                    'epochs': [100]}
 
-HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu],# tf.nn.tanh],# tf.nn.sigmoid],
-                     'hidden_nodes': [[10]]}#,
-                                      #[10, 7],
-                                      #[10, 10],
-                                      #[10, 7, 7]]}
+HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu],
+                     'hidden_nodes': [[12]]}
+
+#HYPERPARAM_GRID = {'learning_rate': [0.05, 0.01, 0.1],
+                   ## keep probability for dropout (1 for none)
+                   #'dropout': [0.5, 0.7, 1],
+                   ## lambda for L2 regularization (0 for none)
+                   #'lambda_l2_reg': [1E-5, 1E-4, 1E-3, 0],
+                   #'n_minibatch': [100],
+                   #'epochs': [100]}
+#
+#HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu],# tf.nn.tanh, tf.nn.sigmoid],
+                     #'hidden_nodes': [[14],
+                                      #[12],
+                                      #[10],
+                                      #[8],
+                                      #[10, 8]]}
 
 SEED = 47
 
@@ -623,4 +625,5 @@ ARCHITECTURE:
 ########################################################################################
 
 if __name__ == '__main__':
-    doWork_combinatorial(TRAINING_DATA, seed = SEED, num_cores = NUM_CORES)
+    doWork_combinatorial(TRAINING_DATA, seed = SEED, num_cores = NUM_CORES,
+                         verbose = False)
