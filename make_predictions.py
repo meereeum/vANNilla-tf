@@ -20,37 +20,38 @@ INFILE = './assignment/test_potus_by_county.csv'
 
 class Model(Model):
     def predict(self, data, epoch_to_restore = None):
-        """Restore Model values for trained variables & generate output from test dataset
+        """Restore Model values for trained variables at given epoch (int), or
+        most recent frozen epoch if not specified, and use to generate predictions
+        from preprocessed test data.
 
         Returns: np.array of indices corresponding to categorical predictions
         """
         with tf.Session() as sesh:
-            # restore saved weights, biases
             #assign_ops = sesh.graph.get_collection('assign_ops')
             #sesh.run(sesh.graph.get_collection('assign_ops'))
             ops = sesh.graph.get_operations()
 
             # restore weights, biases from last frozen checkpoint
             if not epoch_to_restore:
-                match = re.compile("^assign_ops_([^\/]*)").match
-                #assign_op_epochs = {m.group(1) for m in map(
-                    #match, (op.name for op in ops)) if m}
-                # iterable match to avoid `None` as match object
-                assign_op_epochs = {m.group(1) for op in ops
-                                    for m in [match(op.name)] if m}
-                epoch_to_restore = max(map(int, assign_op_epochs))
+                match = re.compile('^assign_ops_([^\/]*)').match
+                assign_op_epochs = {m.group(1) for m in
+                                    (match(op.name) for op in ops) if m}
+                try:
+                    epoch_to_restore = max(map(int, assign_op_epochs))
+                except(ValueError):
+                    print 'Designated epoch_to_restore was not frozen.'
+                    raise
 
             KEY = 'assign_ops_{}/'.format(epoch_to_restore)
             assign_ops = [op for op in ops if op.name.startswith(KEY)]
             sesh.run(assign_ops)
-            print """Restored (trained) values:
+            print """Restoring trained values (from epoch {}):
     {}
-""".format('\n    '.join(op.name[len(KEY):] for op in assign_ops
+""".format(epoch_to_restore,
+           '\n    '.join(op.name[len(KEY):] for op in assign_ops
                          if not op.name.endswith('value')))
 
             x, _ = data.next()
-            import code; code.interact(local=locals())
-            print x
             feed_dict = {self.x: x, self.dropout: 1.0}
             predictions = sesh.run(self.predictions, feed_dict)
 
