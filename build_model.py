@@ -71,8 +71,9 @@ Warning: categorical values not encoded...no targets labeled `{}`
         return encoded
 
     def kFoldCrossVal(self, k):
-        """TODO
-        """
+        """Generate chunks of data suitable for k-fold cross-validation; i.e.
+        yields `k` 2-tuples of DataFrame uniquely chunked into `k-1`-fold
+        train and `1`-fold validation sets"""
         # shuffle
         df = self.df.sample(frac=1)
         # chunk into k folds
@@ -269,14 +270,16 @@ class Model():
             results['best_cross_vals'] += [max_]
             results['best_stopping_epochs'] += [i]
 
-        #assert len(results['l_cross_vals']) == k
+        assert len(results['l_cross_vals']) == k
         return results
 
     def train(self, data_dict, n_train, seed = None, verbose = False,
               num_cores = 0, save = False, outfile = './graph_def',
               logging = False, logdir = './log'):
         """Train on training data and, if supplied, cross-validate accuracy of
-        validation data at every epoch.
+        validation data at every epoch. Optionally, save trained values (at each
+        epoch for which the validation accuracy is >= the previous record accuracy,
+        or the last training epoch if no `validate` data suplied).
 
         Args: data_dict (dictionary) - containing `train` (&, optionally, `validate`)
                 key/s + corresponding iterable streams of (x, y) tuples
@@ -288,6 +291,8 @@ class Model():
                  (defaults to all cores detected automatically)
               save (bool) - freeze & save trained model binary
               outfile (filepath) - optional path/to/file of model binary
+              logging (bool) - save graph_def for visualization with tensorboard
+              logdir (filepath) - optional path/to/dir
 
         Returns: list of cross-validation accuracies (empty if `train` only)
         """
@@ -344,8 +349,6 @@ Current cross-val accuracies: {}
                 raise
 
             if save:
-                #KEY = 'assign_ops'
-                #self._freeze(key = KEY)
                 #tf.train.export_meta_graph(outfile, collection_list = [KEY],
                                            #graph_def = sesh.graph_def,
                                            #saver_def = tf.train.SaverDef())
@@ -360,7 +363,7 @@ Current cross-val accuracies: {}
 
         if validate:
             assert len(cross_vals) == self.hyperparams['epochs']
-            # find xxearliestxx TODO last ? epoch corresponding to best cross-validation accuracy
+            # latest epoch corresponding to best cross-validation accuracy
             if verbose:
                 i, max_ = max(enumerate(cross_vals, 1), key = lambda x: (x[1], x[0]))
                 print """
@@ -372,13 +375,10 @@ Current cross-val accuracies: {}
 
         return cross_vals
 
-    def _freeze(self, epoch):#, key = 'assign_ops'):
+    def _freeze(self, epoch):
         """Add nodes to assign weights & biases to constants containing current
-        trained values, enabling them to be saved by TensorFlow's graph_def
-#
-        #Args: key (string) - corresponding to graph collection for easy resurrection
-        """
-        regex = re.compile('^[^:]*') # string up to first `:`
+        trained values, enabling them to be saved in TensorFlow graph_def """
+        regex = re.compile('^[^:]*') # string preceding first `:`
         with tf.name_scope('assign_ops_{}'.format(epoch)):
             for tvar in tf.trainable_variables():
                 tf.assign(tvar, tvar.eval(), name =
@@ -399,7 +399,9 @@ Layer = namedtuple('Layer', ('name', 'nodes', 'activation'))
 
 class GridSearch():
     def __init__(self, d_hyperparam_grid, d_layer_grid):
-        """TODO
+        """Implement grid search to fine-tune hyperparams and layer architecture
+        according to cross-validation values of associated neural nets
+
         Args: d_hyperparam_grid (dictionary) - hyperparameter names (string)
                 as keys + corresponding potential settings (list) as values
               d_layer_grid (dictionary) - containing the following items...
@@ -408,8 +410,8 @@ class GridSearch():
                 i.e. nodes per layer per config
         """
         DEFAULTS = {'learning_rate': [0.05],
-                    'dropout': [1], # no dropout
-                    'lambda_l2_reg': [0], # no L2 reg
+                    'dropout': [1], # no dropout - i.e. keep prob 1
+                    'lambda_l2_reg': [0], # no L2 regularization
                     'n_minibatch': [100],
                     'epochs': [200]}
         self.d_hyperparam_grid = DEFAULTS.copy()
@@ -458,7 +460,8 @@ class GridSearch():
         input `data` (DataIO object)
 
         Returns: tuple(dict, list of Layers) corresponding to hyperparams
-        and layer architecture with ____ TODO
+          and layer architecture with highest mean cross-validation accuracy across
+          all `k` folds
         """
         overall_best_mean, overall_std = 0, 0
         best_accs = []
@@ -515,29 +518,29 @@ OUTFILES = {'targets': './targets.csv',
             'graph_def': './graph_def.bin',
             'performance': './performance.txt'}
 
-HYPERPARAM_GRID = {'learning_rate': [0.05],
-                   'dropout': [0.75],
-                   'lambda_l2_reg': [1E-4],
-                   'n_minibatch': [100],
-                   'epochs': [100]}
-
-HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu],
-                     'hidden_nodes': [[12]]}
-
-#HYPERPARAM_GRID = {'learning_rate': [0.05, 0.01, 0.1],
-                   ## keep probability for dropout (1 for none)
-                   #'dropout': [0.5, 0.7, 1],
-                   ## lambda for L2 regularization (0 for none)
-                   #'lambda_l2_reg': [1E-5, 1E-4, 1E-3, 0],
+#HYPERPARAM_GRID = {'learning_rate': [0.05],
+                   #'dropout': [0.7],
+                   #'lambda_l2_reg': [1E-3],
                    #'n_minibatch': [100],
                    #'epochs': [100]}
 #
-#HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu],# tf.nn.tanh, tf.nn.sigmoid],
-                     #'hidden_nodes': [[14],
-                                      #[12],
-                                      #[10],
-                                      #[8],
-                                      #[10, 8]]}
+#HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu],
+                     #'hidden_nodes': [[12]]}
+
+HYPERPARAM_GRID = {'learning_rate': [0.05, 0.01, 0.1],
+                   # keep probability for dropout (1 for none)
+                   'dropout': [0.5, 0.7, 1],
+                   # lambda for L2 regularization (0 for none)
+                   'lambda_l2_reg': [1E-5, 1E-4, 1E-3, 0],
+                   'n_minibatch': [100],
+                   'epochs': [100]}
+
+HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu],# tf.nn.tanh, tf.nn.sigmoid],
+                     'hidden_nodes': [[14],
+                                      [12],
+                                      [10],
+                                      [8],
+                                      [10, 8]]}
 
 SEED = 47
 
