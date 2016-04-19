@@ -2,13 +2,12 @@ from collections import namedtuple
 import itertools
 
 import numpy as np
+import tensorflow as tf
 
 from model import Model
 
 
 Layer = namedtuple('Layer', ('name', 'nodes', 'activation'))
-
-########################################################################################
 
 class GridSearch():
     """Tune hyperparameters and neural netowrk hidden layer architecture"""
@@ -110,10 +109,11 @@ New best model!
 Mean: {} +/- {}
 """.format(overall_best_mean, overall_std)
 
+        hyperparams, architecture = best_model
         print """
 BEST HYPERPARAMS!... {}
 BEST ARCHITECTURE!... {}
 median = {}
 mean = {}""".format(hyperparams, architecture, np.median(best_accs), overall_best_mean)
 
-        return best_model # (hyperparams, architecture)
+        return (hyperparams, architecture)
