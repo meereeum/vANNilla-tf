@@ -1,3 +1,5 @@
+import tensorflow as tf
+
 TRAINING_DATA = './assignment/train_potus_by_county.csv'
 TESTING_DATA = './assignment/train_potus_by_county.csv'
 
@@ -29,3 +31,5 @@ HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu],# tf.nn.tanh, tf.nn.sigmoid],
 SEED = 47
 
 NUM_CORES = 3
+
+VERBOSE = False
