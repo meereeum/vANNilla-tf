@@ -2,11 +2,14 @@ from __future__ import division
 
 import pandas as pd
 
-from data import DataIO
+from data import DataIO, splitTrainValidate
 from config import HIDDEN_LAYER_GRID, HYPERPARAM_GRID, NUM_CORES, OUTFILES, \
     SEED, TARGET_LABEL, TRAINING_DATA, VERBOSE
 from model import Model
+from optimize import GridSearch
 
+
+#def trainVanillaWithEarlyStopping(): TODO
 
 def trainWithNestedCV(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
                       d_hyperparams = HYPERPARAM_GRID,
@@ -69,6 +72,6 @@ BEST: {}
     print "Trained model saved to: ", OUTFILES['graph_def']
 
 
-#if __name__ == '__main__':
-    #trainWithNestedCV(TRAINING_DATA, seed = SEED, num_cores = NUM_CORES,
-                      #verbose = False)
+if __name__ == '__main__':
+    trainWithNestedCV(TRAINING_DATA, seed = SEED, num_cores = NUM_CORES,
+                      verbose = VERBOSE)
