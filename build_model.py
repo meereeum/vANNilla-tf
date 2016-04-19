@@ -1,11 +1,11 @@
 from __future__ import division
-import itertools
 from collections import namedtuple
+import itertools
 import re
 
 import numpy as np
-import tensorflow as tf
 import pandas as pd
+import tensorflow as tf
 
 ########################################################################################
 
@@ -77,13 +77,12 @@ Warning: categorical values not encoded...no targets labeled `{}`
         # shuffle
         df = self.df.sample(frac=1)
         # chunk into k folds
-        #fold_idxs = [range(i, self.len_, k) for i in xrange(k)]
+        #fold_idxs = [range(i, self.len_, k) for i in xrange(k)] TODO: pointers ?
         df_arr = [df[i::k] for i in xrange(k)]
 
         for i, validate in enumerate(df_arr):
             train_list = df_arr[:i] + df_arr[i+1:]
             train = pd.concat(train_list, axis=0)
-
             assert len(train) + len(validate) ==  len(df)
             yield (train, validate)
 
@@ -160,7 +159,7 @@ class Model():
              self.train_op) = self._buildGraph()
 
         elif graph_def:
-            # restore from previously saved Graph
+            # restore from previously saved tf.Graph
             #graph = tf.train.import_meta_graph(graph_def)
             with open(graph_def, 'rb') as f:
                 graph_def = tf.GraphDef()
@@ -172,8 +171,9 @@ class Model():
 
         else:
             raise(ValueError,
-                  ('Must supply hyperparameters and layer architecture to initialize Model,'
-                   'or supply graph definition to restore previous Model graph'))
+                  ('Must supply hyperparameters and layer architecture to initialize'
+                  'Model, or supply graph definition to restore saved Model'))
+
 
     @staticmethod
     def crossEntropy(observed, actual):
@@ -332,9 +332,12 @@ class Model():
                                     self.dropout: 1.0} # keep prob 1
                         accuracy = sesh.run(self.accuracy, feed_dict)
                         cross_vals.append(accuracy)
-                        if accuracy > best_acc:
+                        if accuracy >= best_acc:
                             best_acc = accuracy
                             if save:
+                                epoch = (i // iters_per_epoch)
+                                print 'Record validation accuracy (epoch {}): '.format(
+                                    epoch) + '{}. Freezing!'.format(best_acc) # TODO: fix
                                 self._freeze(epoch = (i // iters_per_epoch))
 
                         if verbose:
@@ -496,13 +499,14 @@ New best model!
 Mean: {} +/- {}
 """.format(overall_best_mean, overall_std)
 
+        hyperparams, architecture = best_model
         print """
 BEST HYPERPARAMS!... {}
 BEST ARCHITECTURE!... {}
 median = {}
 mean = {}""".format(hyperparams, architecture, np.median(best_accs), overall_best_mean)
 
-        return best_model # (hyperparams, architecture)
+        return (hyperparams, architecture)
 
 
 ########################################################################################
@@ -583,12 +587,10 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
              param.to_csv(f)
 
     # preprocess features
-    train = DataIO(outer_train, target_label, DataIO.gaussianNorm, [-10, 10])
+    train = DataIO(outer_train, target_label, DataIO.gaussianNorm)#, [-10, 10])
 
     tuner = GridSearch(d_hyperparams, d_architectures)
     hyperparams, architecture = tuner.tuneParams(train, **KWARGS)
-
-    hyperparams['epochs'] = 5000
 
     #with open(OUTFILES['model_params'], 'w') as f:
         #f.write("""HYPERPARAMS:
@@ -601,25 +603,29 @@ def doWork_combinatorial(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
     # use train data mean, std to preprocess validation data
     mean, std = params
     validate = DataIO(outer_validate, target_label, lambda x:
-                      DataIO.gaussianNorm(x, mean, std), [-10, 10])
+                      DataIO.gaussianNorm(x, mean, std))#, [-10, 10])
+
+    hyperparams['epochs'] = 200
 
     data = {'train': train.stream(batchsize = hyperparams['n_minibatch'],
                                   max_iter = hyperparams['epochs']),
             'validate': validate.stream()}
 
+    #for i in xrange(5):
     model = Model(hyperparams, architecture)
+
     val_accs = model.train(data, train.len_, logging = True, save = True,
                            outfile = OUTFILES['graph_def'], **KWARGS)
 
     i, max_ = max(enumerate(val_accs, 1), key = lambda x: (x[1], x[0]))
     print """
-validation accuracies: {}
+Validation accuracies: {}
 BEST: {}
 (at epoch {})""".format(val_accs, max_, i)
 
     # TODO
-    #with open(OUTFILES['performance'], 'w') as f:
-        #f.write("Estimated accuracy: {}".format(max_))
+    with open(OUTFILES['performance'], 'w') as f:
+        f.write("Estimated accuracy: {}".format(max_))
 
     print "Trained model saved to: ", OUTFILES['graph_def']
 
