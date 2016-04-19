@@ -1,9 +1,8 @@
 from __future__ import division
 import re
 
+import numpy as np
 import tensorflow as tf
-
-#from data import DataIO
 
 
 class Model():
@@ -40,8 +39,8 @@ class Model():
 
         else:
             raise(ValueError,
-                  ('Must supply hyperparameters and layer architecture to initialize
-                  Model, or supply graph definition to restore saved Model'))
+                  ('Must supply hyperparameters and layer architecture to initialize'
+                  'Model, or supply graph definition to restore saved Model'))
 
     @staticmethod
     def crossEntropy(observed, actual):
@@ -199,8 +198,8 @@ class Model():
                             best_acc = accuracy
                             if save:
                                 epoch = (i // iters_per_epoch)
-                                print ('Record validation accuracy (epoch {}): '
-                                       .format(epoch) '{}. Freezing!'.format(best_acc))
+                                print 'Record validation accuracy (epoch {}): '.format(
+                                    epoch) + '{}. Freezing!'.format(best_acc)
                                 self._freeze(epoch = (i // iters_per_epoch))
 
                         if verbose:
