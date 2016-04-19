@@ -67,8 +67,8 @@ def doWork(file_in = INFILE):
     mean = pd.read_csv(OUTFILES['preprocessing_means'])
     std = pd.read_csv(OUTFILES['preprocessing_stddevs'])
 
-    data = DataIO(df, TARGET_LABEL, lambda x: DataIO.gaussianNorm(x, mean, std),
-                  [-10, 10]) # TODO: code limits ??
+    data = DataIO(df, TARGET_LABEL, lambda x: DataIO.gaussianNorm(x, mean, std))#,
+                  #[-10, 10]) # TODO: code limits ??
 
     model = Model(graph_def = OUTFILES['graph_def'])
     predictions = model.predict(data.stream())
