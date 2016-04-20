@@ -1,6 +1,7 @@
 from __future__ import division
 from collections import namedtuple
 import re
+import sys
 
 import numpy as np
 import tensorflow as tf
@@ -212,11 +213,10 @@ class Model():
                                 i // iters_per_epoch, accuracy)
 
             except(KeyboardInterrupt):
-                print """
+                sys.exit("""
 Epochs: {}
 Current cross-val accuracies: {}
-""".format(i / iters_per_epoch, cross_vals)
-                raise
+""".format(i / iters_per_epoch, cross_vals))
 
             if save:
                 if not validate:
