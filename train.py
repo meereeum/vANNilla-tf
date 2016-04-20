@@ -8,17 +8,12 @@ from model import Model
 from optimize import GridSearch
 
 
-#def trainVanillaWithEarlyStopping(): TODO
+def preprocess(file_in, target_label, outfiles):
+    """Generate processed training and validation data from input file, and
+    save files necessary to process future test data.
 
-def trainWithNestedCV(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
-                      d_hyperparams = HYPERPARAM_GRID,
-                      d_architectures = HIDDEN_LAYER_GRID,
-                      seed = None, num_cores = None, verbose = False):
-    """Preprocess training data, use grid search of all combinatorial possibilities
-    for given hyperparameters and layer architecture to tune artificial neural net
-    model, and save files necessary for resurrection of tuned model"""
-    KWARGS = {'seed': seed, 'num_cores': num_cores, 'verbose': verbose}
-
+    Returns: (train, validate) as preprocessed DataIO objects
+    """
     df = pd.read_csv(file_in)
     assert sum(df.isnull().any()) == False
 
@@ -28,32 +23,36 @@ def trainWithNestedCV(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
         f.write(','.join(targets))
 
     # nested validation
-    outer_train, outer_validate = splitTrainValidate(df, perc_training=0.8)
+    train, validate = splitTrainValidate(df, perc_training=0.8)
 
     # extract raw features mean, stddev from train set to use for all preprocessing
-    raw_features, _ = DataIO(outer_train, target_label).splitXY()
+    raw_features, _ = DataIO(train, target_label).splitXY()
     params = (raw_features.mean(axis=0), raw_features.std(axis=0))
     for k, param in zip(('preprocessing_means', 'preprocessing_stddevs'), params):
          with open(outfiles[k], 'w') as f:
              param.to_csv(f)
 
     # preprocess features
-    train = DataIO(outer_train, target_label, DataIO.gaussianNorm)#, [-10, 10])
+    return (DataIO(dataset, target_label, lambda x:
+                   DataIO.gaussianNorm(x, *params))#, [-10, 10]
+            for dataset in (train, validate))
 
-    tuner = GridSearch(d_hyperparams, d_architectures)
-    hyperparams, architecture = tuner.tuneParams(train, **KWARGS)
+def trainWithEarlyStopping(train, validate, hyperparams, architecture, outfiles,
+                           seed = None, num_cores = None, verbose = False):
+    """Build trained artificial neural net model using early-stopping with
+    validation set, and save files necessary for resurrection of tuned model
+    """
+    # if not already set, size input & output nodes by data shape
+    if not architecture[0].nodes:
+        architecture[0] = architecture[0]._replace(nodes = train.n_features)
+    if not architecture[-1].nodes:
+        architecture[-1] = architecture[-1]._replace(nodes = train.n_targets)
 
-    mean, std = params
-    validate = DataIO(outer_validate, target_label, lambda x:
-                      DataIO.gaussianNorm(x, mean, std))#, [-10, 10])
-
-    hyperparams['epochs'] = 200
+    model = Model(hyperparams, architecture)
 
     data = {'train': train.stream(batchsize = hyperparams['n_minibatch'],
                                   max_iter = hyperparams['epochs']),
             'validate': validate.stream()}
-
-    model = Model(hyperparams, architecture)
 
     val_accs = model.train(data, train.len_, logging = True, save = True,
                            outfile = outfiles['graph_def'], seed = seed,
@@ -69,9 +68,46 @@ BEST: {}
     with open(outfiles['performance'], 'w') as f: # TODO ?
         f.write("Estimated accuracy: {}".format(max_))
 
-    print "Trained model saved to: ", OUTFILES['graph_def']
+    print "Trained model saved to: ", outfiles['graph_def']
+
+def trainWithNestedCV(train, validate, d_hyperparams, d_architectures,
+                      outfiles, seed = None, num_cores = None, verbose = False):
+    """Implement nested cross-validation to (1) use grid search of all
+    combinatorial possibilities for given hyperparameters and layer architecture
+    to tune artificial neural net model, and (2) generate trained model using
+    early-stopping with held-out validation set
+    """
+    KWARGS = {'seed': seed, 'num_cores': num_cores, 'verbose': verbose}
+
+    # choose optimal hyperparams, architecture with k-fold cross-validation
+    tuner = GridSearch(d_hyperparams, d_architectures)
+    hyperparams, architecture = tuner.tuneParams(train, **KWARGS)
+
+    # train on full training set and use validation set for early-stopping
+    hyperparams['epochs'] += 100
+    trainWithEarlyStopping(train, validate, hyperparams, architecture, outfiles,
+                           **KWARGS)
 
 
 if __name__ == '__main__':
-    trainWithNestedCV(TRAINING_DATA, seed = SEED, num_cores = NUM_CORES,
-                      verbose = VERBOSE)
+    train, validate = preprocess(file_in = config.TRAINING_DATA,
+                                 target_label = config.TARGET_LABEL,
+                                 outfiles = config.OUTFILES)
+
+    # trainWithNestedCV(train = train,
+    #                   validate = validate,
+    #                   d_hyperparams = config.HYPERPARAM_GRID,
+    #                   d_architectures = config.HIDDEN_LAYER_GRID,
+    #                   outfiles = config.OUTFILES,
+    #                   seed = config.SEED,
+    #                   num_cores = config.NUM_CORES,
+    #                   verbose = config.VERBOSE)
+
+    trainWithEarlyStopping(train = train,
+                           validate = validate,
+                           hyperparams = config.HYPERPARAMS,
+                           architecture = config.LAYERS,
+                           outfiles = config.OUTFILES,
+                           seed = config.SEED,
+                           num_cores = config.NUM_CORES,
+                           verbose = config.VERBOSE)
