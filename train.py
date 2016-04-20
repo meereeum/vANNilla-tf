@@ -93,21 +93,24 @@ if __name__ == '__main__':
     train, validate = preprocess(file_in = config.TRAINING_DATA,
                                  target_label = config.TARGET_LABEL,
                                  outfiles = config.OUTFILES)
-
-    # trainWithNestedCV(train = train,
-    #                   validate = validate,
-    #                   d_hyperparams = config.HYPERPARAM_GRID,
-    #                   d_architectures = config.HIDDEN_LAYER_GRID,
-    #                   outfiles = config.OUTFILES,
-    #                   seed = config.SEED,
-    #                   num_cores = config.NUM_CORES,
-    #                   verbose = config.VERBOSE)
-
-    trainWithEarlyStopping(train = train,
-                           validate = validate,
-                           hyperparams = config.HYPERPARAMS,
-                           architecture = config.LAYERS,
-                           outfiles = config.OUTFILES,
-                           seed = config.SEED,
-                           num_cores = config.NUM_CORES,
-                           verbose = config.VERBOSE)
+    try:
+        trainWithNestedCV(train = train,
+                          validate = validate,
+                          d_hyperparams = config.HYPERPARAM_GRID,
+                          d_architectures = config.HIDDEN_LAYER_GRID,
+                          outfiles = config.OUTFILES,
+                          seed = config.SEED,
+                          num_cores = config.NUM_CORES,
+                          verbose = config.VERBOSE)
+    except(AttributeError):
+        try:
+            trainWithEarlyStopping(train = train,
+                                   validate = validate,
+                                   hyperparams = config.HYPERPARAMS,
+                                   architecture = config.LAYERS,
+                                   outfiles = config.OUTFILES,
+                                   seed = config.SEED,
+                                   num_cores = config.NUM_CORES,
+                                   verbose = config.VERBOSE)
+        except(AttributeError):
+            raise('Must supply valid config for Model training')
