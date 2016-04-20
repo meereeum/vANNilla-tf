@@ -12,6 +12,11 @@ Layer = namedtuple('Layer', ('name', 'nodes', 'activation'))
 ########################################################################################
 
 class Model():
+
+    # turn off dropout, l2 reg, max epochs if not specified
+    DEFAULTS = {'dropout': 1, 'lambda_l2_reg': 0, 'epochs': np.inf}
+    RESTORE_KEY = 'assign_ops'
+
     def __init__(self, hyperparams = None, layers = None, graph_def = None):
         """Artificial neural network with architecture according to given layers,
         training according to given hyperparameters
@@ -23,9 +28,7 @@ class Model():
         tf.reset_default_graph()
 
         if hyperparams and layers:
-            # turn off dropout, l2 reg, max epochs if not specified
-            DEFAULTS = {'dropout': 1, 'lambda_l2_reg': 0, 'epochs': np.inf}
-            self.hyperparams = DEFAULTS
+            self.hyperparams = self.DEFAULTS.copy()
             self.hyperparams.update(**hyperparams)
 
             self.layers = layers
@@ -114,33 +117,6 @@ class Model():
 
         return (x_in, y, dropout, accuracy, cost, train_op)
 
-    def kFoldTrain(self, data, k = 10, verbose = False, num_cores = None, seed = None):
-        """Train model using k-fold cross-validation of full set of training data"""
-        results = {'best_cross_vals': [], # highest cross-val accuracy (per fold)
-                   'best_stopping_epochs': [], # corresponding epoch (per fold)
-                   'l_cross_vals': []} # nested list of cross-val accs over all epochs, all folds
-
-        STREAM_KWARGS = {'train': {'batchsize': self.hyperparams['n_minibatch'],
-                                   'max_iter': self.hyperparams['epochs']},
-                         'validate': {}}
-
-        for train, validate in data.kFoldCrossVal(k):
-            # train on (k-1) folds, cross-validate on kth
-            streams = {k: data.stream(v, **STREAM_KWARGS[k])
-                       for k, v in (('train', train), ('validate', validate))}
-
-            cross_vals = self.train(streams, len(train), verbose = verbose,
-                                    num_cores = num_cores, seed = seed)
-
-            i, max_ = max(enumerate(cross_vals, 1), key = lambda x: (x[1], x[0]))
-
-            results['l_cross_vals'] += [cross_vals]
-            results['best_cross_vals'] += [max_]
-            results['best_stopping_epochs'] += [i]
-
-        assert len(results['l_cross_vals']) == k
-        return results
-
     def train(self, data_dict, n_train, seed = None, verbose = False,
               num_cores = 0, save = False, outfile = './graph_def',
               logging = False, logdir = './log'):
@@ -164,8 +140,8 @@ class Model():
 
         Returns: list of cross-validation accuracies (empty if `train` only)
         """
-        iters_per_epoch = (n_train // self.hyperparams['n_minibatch']) + \
-                          ((n_train % self.hyperparams['n_minibatch']) != 0)
+        iters_per_epoch = ((n_train // self.hyperparams['n_minibatch']) +
+                           ((n_train % self.hyperparams['n_minibatch']) != 0))
 
         validate = 'validate' in data_dict.iterkeys()
         cross_vals = []
@@ -179,7 +155,7 @@ class Model():
             sesh.run(tf.initialize_all_variables())
 
             if logging:
-                logger = tf.train.SummaryWriter(logdir, sesh.graph_def)
+                logger = tf.train.SummaryWriter(logdir, sesh.graph)#_def)
 
             try:
                 for i, (x, y) in enumerate(data_dict['train'], 1):
@@ -245,11 +221,39 @@ Current cross-val accuracies: {}
     def _freeze(self, epoch):
         """Add nodes to assign weights & biases to constants containing current
         trained values, enabling them to be saved in TensorFlow graph_def """
-        regex = re.compile('^[^:]*') # string preceding first `:`
-        with tf.name_scope('assign_ops_{}'.format(epoch)):
+        match = re.compile('^[^:]*').match # string preceding first `:`
+
+        with tf.name_scope('{}_{}'.format(self.RESTORE_KEY, epoch)):
             for tvar in tf.trainable_variables():
-                tf.assign(tvar, tvar.eval(), name =
-                          re.match(regex, tvar.name).group(0))
+                tf.assign(tvar, tvar.eval(), name = match(tvar.name).group(0))
+
+    def kFoldTrain(self, data, k = 10, verbose = False, num_cores = None, seed = None):
+        """Train model using k-fold cross-validation of full set of training data"""
+        results = {'best_cross_vals': [], # highest cross-val accuracy (per fold)
+                   'best_stopping_epochs': [], # corresponding epoch (per fold)
+                   'l_cross_vals': []} # nested list of cross-val accs over all epochs, all folds
+
+        STREAM_KWARGS = {'train': {'batchsize': self.hyperparams['n_minibatch'],
+                                   'max_iter': self.hyperparams['epochs']},
+                         'validate': {}}
+
+        for train, validate in data.kFoldCrossVal(k):
+            # train on (k-1) folds, cross-validate on kth
+            streams = {k: data.stream(v, **STREAM_KWARGS[k])
+                       for k, v in (('train', train), ('validate', validate))}
+
+            cross_vals = self.train(streams, len(train), verbose = verbose,
+                                    num_cores = num_cores, seed = seed)
+
+            # most recent epoch with best cross-validation accuracy
+            i, max_ = max(enumerate(cross_vals, 1), key = lambda x: (x[1], x[0]))
+
+            results['l_cross_vals'].append(cross_vals)
+            results['best_cross_vals'].append(max_)
+            results['best_stopping_epochs'].append(i)
+
+        assert len(results['l_cross_vals']) == k
+        return results
 
     def predict(self, data, epoch_to_restore = None):
         """Restore Model values for trained variables at given epoch (int), or
@@ -263,23 +267,23 @@ Current cross-val accuracies: {}
 
             # restore weights, biases from last frozen checkpoint
             if not epoch_to_restore:
-                match = re.compile('^assign_ops_([^\/]*)').match
+                match = re.compile('^{}_([^\/]*)'.format(self.RESTORE_KEY)).match
                 assign_op_epochs = {m.group(1) for m in
                                     (match(op.name) for op in ops) if m}
-                try:
-                    epoch_to_restore = max(map(int, assign_op_epochs))
-                except(ValueError):
-                    print 'Designated epoch_to_restore was not frozen.'
-                    raise
+                epoch_to_restore = max(map(int, assign_op_epochs))
 
-            KEY = 'assign_ops_{}/'.format(epoch_to_restore)
-            assign_ops = [op for op in ops if op.name.startswith(KEY)]
-            sesh.run(assign_ops)
-            print """Restoring trained values (from epoch {}):
+            key = '{}_{}/'.format(self.RESTORE_KEY, epoch_to_restore)
+            assign_ops = [op for op in ops if op.name.startswith(key)]
+
+            if assign_ops:
+                print """Restoring trained values (from epoch {}):
     {}
-""".format(epoch_to_restore,
-           '\n    '.join(op.name[len(KEY):] for op in assign_ops
-                         if not op.name.endswith('value')))
+""".format(epoch_to_restore, '\n    '.join(op.name[len(key):] for op in assign_ops
+                                           if not op.name.endswith('value')))
+            else:
+                raise(ValueError, 'Designated epoch_to_restore was not frozen.')
+
+            sesh.run(assign_ops)
 
             x, _ = data.next()
             feed_dict = {self.x: x, self.dropout: 1.0}
