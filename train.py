@@ -2,9 +2,8 @@ from __future__ import division
 
 import pandas as pd
 
+from config import config
 from data import DataIO, splitTrainValidate
-from config import HIDDEN_LAYER_GRID, HYPERPARAM_GRID, NUM_CORES, OUTFILES, \
-    SEED, TARGET_LABEL, TRAINING_DATA, VERBOSE
 from model import Model
 from optimize import GridSearch
 
@@ -25,7 +24,7 @@ def trainWithNestedCV(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
 
     # record categorical targets for decoding test set
     targets = list(pd.get_dummies(df[target_label]))
-    with open(OUTFILES['targets'], 'w') as f:
+    with open(outfiles['targets'], 'w') as f:
         f.write(','.join(targets))
 
     # nested validation
@@ -35,7 +34,7 @@ def trainWithNestedCV(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
     raw_features, _ = DataIO(outer_train, target_label).splitXY()
     params = (raw_features.mean(axis=0), raw_features.std(axis=0))
     for k, param in zip(('preprocessing_means', 'preprocessing_stddevs'), params):
-         with open(OUTFILES[k], 'w') as f:
+         with open(outfiles[k], 'w') as f:
              param.to_csv(f)
 
     # preprocess features
@@ -57,16 +56,17 @@ def trainWithNestedCV(file_in = TRAINING_DATA, target_label = TARGET_LABEL,
     model = Model(hyperparams, architecture)
 
     val_accs = model.train(data, train.len_, logging = True, save = True,
-                           outfile = OUTFILES['graph_def'], **KWARGS)
+                           outfile = outfiles['graph_def'], seed = seed,
+                           num_cores = num_cores, verbose = verbose)
 
     i, max_ = max(enumerate(val_accs, 1), key = lambda x: (x[1], x[0]))
+
     print """
 Validation accuracies: {}
 BEST: {}
 (at epoch {})""".format(val_accs, max_, i)
 
-    # TODO
-    with open(OUTFILES['performance'], 'w') as f:
+    with open(outfiles['performance'], 'w') as f: # TODO ?
         f.write("Estimated accuracy: {}".format(max_))
 
     print "Trained model saved to: ", OUTFILES['graph_def']
