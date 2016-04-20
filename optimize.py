@@ -4,13 +4,18 @@ import itertools
 import numpy as np
 import tensorflow as tf
 
-from model import Model
+from model import Model, Layer
 
-
-Layer = namedtuple('Layer', ('name', 'nodes', 'activation'))
 
 class GridSearch():
-    """Tune hyperparameters and neural netowrk hidden layer architecture"""
+    """Tune hyperparameters and neural network hidden layer architecture"""
+
+    DEFAULTS = {'learning_rate': [0.05],
+                'dropout': [1], # no dropout - i.e. keep prob 1
+                'lambda_l2_reg': [0], # no L2 regularization
+                'n_minibatch': [100],
+                'epochs': [200]}
+
     def __init__(self, d_hyperparam_grid, d_layer_grid):
         """Implement grid search to fine-tune hyperparams and layer architecture
         according to cross-validation values of associated neural nets
@@ -22,13 +27,8 @@ class GridSearch():
                 'hidden_nodes': list of lists of hidden layer architectures,
                 i.e. nodes per layer per config
         """
-        DEFAULTS = {'learning_rate': [0.05],
-                    'dropout': [1], # no dropout - i.e. keep prob 1
-                    'lambda_l2_reg': [0], # no L2 regularization
-                    'n_minibatch': [100],
-                    'epochs': [200]}
-        self.d_hyperparam_grid = DEFAULTS.copy()
-        # any DEFAULT items with key duplicated by d_hyperparam_grid will be replaced
+        self.d_hyperparam_grid = self.DEFAULTS.copy()
+        # any defaults with key duplicated by d_hyperparam_grid will be replaced
         self.d_hyperparam_grid.update(**d_hyperparam_grid)
 
         self.d_layer_grid = d_layer_grid
