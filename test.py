@@ -1,33 +1,37 @@
+from __future__ import division
+
 import numpy as np
 import pandas as pd
 
+from config import config
 from data import DataIO
-from config import OUTFILES, TARGET_LABEL, TESTING_DATA
 from model import Model
 
 
-def doWork(file_in):
+def doWork(file_in, target_label, outfiles):
     """Resurrect protocols for data preprocessing and artificial neural net model
     construction, and use to generate predictions from input data"""
+    # preprocess test data
     df = pd.read_csv(file_in)
-    mean = pd.read_csv(OUTFILES['preprocessing_means'])
-    std = pd.read_csv(OUTFILES['preprocessing_stddevs'])
+    mean = pd.read_csv(outfiles['preprocessing_means'])
+    std = pd.read_csv(outfiles['preprocessing_stddevs'])
 
-    data = DataIO(df, TARGET_LABEL, lambda x: DataIO.gaussianNorm(x, mean, std))#,
+    data = DataIO(df, target_label, lambda x: DataIO.gaussianNorm(x, mean, std))#,
                   #[-10, 10]) # TODO: code limits ??
 
-    model = Model(graph_def = OUTFILES['graph_def'])
+    # make predictions
+    model = Model(graph_def = outfiles['graph_def'])
     predictions = model.predict(data.stream())
 
-    with open(OUTFILES['targets'], 'r') as f:
+    with open(outfiles['targets'], 'r') as f:
         targets = f.read().strip().split(',')
 
     prediction_targets = (targets[i] for i in predictions)
 
-    with open(OUTFILES['predictions'], 'w') as f:
+    with open(outfiles['predictions'], 'w') as f:
         f.write('\n'.join(prediction_targets) + '\n')
 
-    print "Predictions saved to: {}".format(OUTFILES['predictions'])
+    print 'Predictions saved to: ', outfiles['predictions']
 
     # if test data is labeled, print accuracy
     if data.n_targets > 0:
@@ -36,7 +40,10 @@ def doWork(file_in):
         assert len(actual) == len(predictions)
         correct = sum(y_out == y_actual for y_out, y_actual
                       in zip(predictions, actual))
-        print "accuracy: ", correct/len(predictions)
+        print 'accuracy: ', correct/len(predictions)
+
 
 if __name__ == '__main__':
-    doWork(TESTING_DATA)
+    doWork(file_in = config.TESTING_DATA,
+           target_label = config.TARGET_LABEL,
+           outfiles = config.OUTFILES)
