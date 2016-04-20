@@ -1,17 +1,40 @@
 import tensorflow as tf
 
-TRAINING_DATA = './assignment/train_potus_by_county.csv'
-TESTING_DATA = './assignment/train_potus_by_county.csv'
+from model import Layer
 
-TARGET_LABEL = 'Winner'
 
-OUTFILES = {'targets': './targets.csv',
-            'preprocessing_means': './preprocessing_means.csv',
-            'preprocessing_stddevs': './preprocessing_stddevs.csv',
-            #'model_params': './model_training_params.txt',
-            'graph_def': './graph_def.bin',
-            'performance': './performance.txt',
-            'predictions': './predictions.txt'}
+class BaseConfig():
+    TRAINING_DATA = './assignment/train_potus_by_county.csv'
+    TESTING_DATA = './assignment/train_potus_by_county.csv'
+
+    TARGET_LABEL = 'Winner'
+
+    OUTFILES = {'targets': './targets.csv',
+                'preprocessing_means': './preprocessing_means.csv',
+                'preprocessing_stddevs': './preprocessing_stddevs.csv',
+                #'model_params': './model_training_params.txt',
+                'graph_def': './graph_def.bin',
+                'performance': './performance.txt',
+                'predictions': './predictions.txt'}
+
+    SEED = 47
+    NUM_CORES = 3
+    VERBOSE = False
+
+
+class Config(BaseConfig):
+    def __init__(self, hyperparams, layers):
+        self.HYPERPARAMS = hyperparams
+        self.LAYERS = layers
+
+
+class GridSearchConfig(BaseConfig):
+    def __init__(self, hyperparam_grid, hidden_layer_grid):
+        self.HYPERPARAM_GRID = hyperparam_grid
+        self.HIDDEN_LAYER_GRID = hidden_layer_grid
+
+
+########################################################################################
 
 HYPERPARAM_GRID = {'learning_rate': [0.05, 0.01, 0.1],
                    # keep probability for dropout (1 for none)
@@ -28,8 +51,19 @@ HIDDEN_LAYER_GRID = {'activation': [tf.nn.relu],# tf.nn.tanh, tf.nn.sigmoid],
                                       [8],
                                       [10, 8]]}
 
-SEED = 47
+HYPERPARAMS = {'learning_rate': 0.05,
+               'dropout': 0.7,
+               'lambda_l2_reg': 1E-5,
+               'n_minibatch': 100,
+               'epochs': 100}
 
-NUM_CORES = 3
+ARCHITECTURE = [
+    # input & output nodes will be sized by data shape
+    Layer('input', None, None),
+    Layer('hidden_1', 12, tf.nn.relu),
+    #Layer('hidden_2', 10, tf.nn.relu),
+    Layer('output', None, tf.nn.softmax)
+    ]
 
-VERBOSE = False
+#config = GridSearchConfig(HYPERPARAM_GRID, HIDDEN_LAYER_GRID)
+config = Config(HYPERPARAMS, ARCHITECTURE)
