@@ -1,9 +1,14 @@
 from __future__ import division
+from collections import namedtuple
 import re
 
 import numpy as np
 import tensorflow as tf
 
+
+Layer = namedtuple('Layer', ('name', 'nodes', 'activation'))
+
+########################################################################################
 
 class Model():
     def __init__(self, hyperparams = None, layers = None, graph_def = None):
