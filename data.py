@@ -101,6 +101,8 @@ Warning: categorical values not encoded...no targets labeled `{}`
                         x, y = self.splitXY(batched)
                         yield (x.values, y.values)
                 reps += 1
+                # shuffle
+                df = self.df.sample(frac=1)
             else:
                 break
 
