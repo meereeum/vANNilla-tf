@@ -13,7 +13,9 @@ Modularized for convenient model-building, tuning, and training. WIP!
 
 <sub> Input data must be CSV, with quantitative features and qualitative feature labels.</sub>
 
-``` $ python train.py```
+```
+$ python train.py
+```
 
 (3) Test model
 ```
