@@ -3,9 +3,9 @@ from __future__ import division
 import pandas as pd
 
 from config import config
-from data import DataIO, splitTrainValidate
-from model import Model
-from tune import GridSearch
+from classes.data import DataIO, splitTrainValidate
+from classes.model import Model
+from classes.tune import GridSearch
 
 
 def preprocess(file_in, target_label, outfiles):

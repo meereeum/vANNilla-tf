@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from model import Layer
+from classes.model import Layer
 
 
 class BaseConfig():
