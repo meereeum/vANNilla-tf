@@ -7,11 +7,17 @@ Modularized for convenient model-building, tuning, and training.
 <img src="docs/graphdef.png" title="Tensorboard viz of sample model" alt="Tensorboard viz of sample model" align="middle" width="750"/>
 
 ## Usage
-(1) Configure model by editing ```config.py```, including hyperparameters (learning rate, dropout, L2-regularization...) and layer architecture, as well as paths/to/data and target label header
+(1) Install dependencies
+
+```
+$ pip install requirements.txt
+```
+
+(2) Configure model by editing ```config.py```, including hyperparameters (learning rate, dropout, L2-regularization...) and layer architecture, as well as paths/to/data and target label header
 
 <sup> Config may be a simple Config - i.e. single settings for hyperparameters (dictionary) and architecture (list of Layer namedtuples) - OR a GridSearchConfig - i.e. hyperparameter dictionary with lists of multiple settings as values, and architecture dictionary with list of activation functions (```tf.relu```, ```tf.sigmoid```, ```tf.tanh```...) and hidden layer architectures (list of lists of nodes per hidden layer).</sup>
 
-(2) Train and save best model, while logging performance
+(3) Train and save best model, while logging performance
 
 <sup> Input data must be CSV, with quantitative features and qualitative feature labels.</sup>
 
@@ -19,7 +25,7 @@ Modularized for convenient model-building, tuning, and training.
 $ python train.py
 ```
 
-(3) Test model
+(4) Test model
 ```
 $ python test.py
 ```
