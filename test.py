@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 
 from config import config
-from data import DataIO
-from model import Model
+from classes.data import DataIO
+from classes.model import Model
 
 
 def doWork(file_in, target_label, outfiles):
