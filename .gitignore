@@ -2,8 +2,8 @@ assignment
 .ipynb_checkpoints
 *.pyc
 *.csv
+performance.txt
 log
 graph_def.bin
-*.txt
 .#*
 output
