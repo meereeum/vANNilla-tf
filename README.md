@@ -2,7 +2,7 @@
 
 tl;dr --> "vanilla" **a**rtificial **n**eural **n**et classifier, implemented in [TensorFlow](https://github.com/tensorflow/tensorflow)
 
-Modularized for convenient model-building, tuning, and training. WIP!
+Modularized for convenient model-building, tuning, and training.
 
 ## Usage
 (1) Configure model by editing ```config.py```, including hyperparameters (e.g. learning rate, dropout, L2-regularization...) and hidden layer architecture
