@@ -1,10 +1,10 @@
 # v[ann]illa-tf
 
-tl;dr --> "vanilla" **a**rtificial **n**eural **n**et classifier, implemented in [TensorFlow](https://github.com/tensorflow/tensorflow)
+tl;dr --> :ice_cream: "vanilla" **a**rtificial **n**eural **n**et classifier, implemented in [TensorFlow](https://github.com/tensorflow/tensorflow)
 
 Modularized for convenient model-building, tuning, and training.
 
-<img src="docs/graphdef.png" alt="Tensorboard viz of sample model" width=750>
+<img src="docs/graphdef.png" title="Tensorboard viz of sample model" alt="Tensorboard viz of sample model" align="middle" width="750"/>
 
 ## Usage
 (1) Configure model by editing ```config.py```, including hyperparameters (learning rate, dropout, L2-regularization...) and layer architecture, as well as paths/to/data and target label header
