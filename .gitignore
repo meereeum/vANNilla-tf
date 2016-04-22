@@ -1,0 +1,5 @@
+assignment
+.ipynb_checkpoints
+*.pyc
+*.csv
+log
