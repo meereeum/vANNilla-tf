@@ -4,6 +4,8 @@ tl;dr --> "vanilla" **a**rtificial **n**eural **n**et classifier, implemented in
 
 Modularized for convenient model-building, tuning, and training.
 
+<img src="docs/graphdef.png" alt="Tensorboard viz of sample model" width=750>
+
 ## Usage
 (1) Configure model by editing ```config.py```, including hyperparameters (learning rate, dropout, L2-regularization...) and layer architecture, as well as paths/to/data and target label header
 
@@ -35,7 +37,3 @@ During training, weights and biases are updated based on cross-entropy cost by t
 Performance is logged to STDOUT and output file; trained model is saved as a TensorFlow graph_def binary.
 
 ```test.py``` restores the trained model, saves predictions to file, and outputs accuracy, if test data is labeled.
-
-## Tensorboard viz of sample model
-
-![Tensorboard visualization](docs/graphdef.png)
