@@ -1,6 +1,6 @@
 # v[ann]illa-tf
 
-tl;dr: "Vanilla" **a**rtificial **n**eural **n**etwork classifier, implemented in [TensorFlow](https://github.com/tensorflow/tensorflow)
+tl;dr --> "vanilla" **a**rtificial **n**eural **n**etwork classifier, implemented in [TensorFlow](https://github.com/tensorflow/tensorflow)
 
 Modularized for convenient model-building, tuning, and training. WIP!
 
