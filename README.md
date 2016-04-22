@@ -35,3 +35,7 @@ During training, weights and biases are updated based on cross-entropy cost by t
 Performance is logged to STDOUT and output file; trained model is saved as a TensorFlow graph_def binary.
 
 ```test.py``` restores the trained model, saves predictions to file, and outputs accuracy, if test data is labeled.
+
+## Tensorboard viz of sample model
+
+![Tensorboard visualization](docs/graphdef.png)
