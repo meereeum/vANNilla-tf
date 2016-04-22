@@ -5,7 +5,7 @@ import pandas as pd
 from config import config
 from data import DataIO, splitTrainValidate
 from model import Model
-from optimize import GridSearch
+from tune import GridSearch
 
 
 def preprocess(file_in, target_label, outfiles):
