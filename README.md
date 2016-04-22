@@ -5,7 +5,7 @@ tl;dr --> "vanilla" **a**rtificial **n**eural **n**et classifier, implemented in
 Modularized for convenient model-building, tuning, and training.
 
 ## Usage
-(1) Configure model by editing ```config.py```, including hyperparameters (e.g. learning rate, dropout, L2-regularization...) and hidden layer architecture, as well as paths/to/data and target label string
+(1) Configure model by editing ```config.py```, including hyperparameters (learning rate, dropout, L2-regularization...) and hidden layer architecture, as well as paths/to/data and target label string
 
 <sub> Config may be a simple Config - i.e. single setting for hyperparameters (dictionary) and architecture (list of Layer namedtuples) - OR a GridSearchConfig - i.e. hyperparameter dictionary with lists of multiple settings as values, and architecture dictionary with list of activation functions (```tf.relu```, ```tf.sigmoid```, ```tf.tanh```...) and hidden layer architectures (list of lists of nodes per hidden layer).</sub>
 
