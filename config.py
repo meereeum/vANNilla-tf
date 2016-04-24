@@ -18,7 +18,10 @@ class BaseConfig():
                 'predictions': './predictions.txt'}
 
     SEED = 47
+
+    # defaults to all detected if 0
     NUM_CORES = 3
+
     VERBOSE = False
 
 

@@ -38,7 +38,7 @@ def preprocess(file_in, target_label, outfiles):
             for dataset in (train, validate))
 
 def trainWithEarlyStopping(train, validate, hyperparams, architecture, outfiles,
-                           seed = None, num_cores = None, verbose = False):
+                           seed = None, num_cores = 0, verbose = False):
     """Build trained artificial neural net model using early-stopping with
     validation set, and save files necessary for resurrection of tuned model
     """
@@ -71,7 +71,7 @@ BEST: {}
     print "Trained model saved to: ", outfiles['graph_def']
 
 def trainWithNestedCV(train, validate, d_hyperparams, d_architectures,
-                      outfiles, seed = None, num_cores = None, verbose = False):
+                      outfiles, seed = None, num_cores = 0, verbose = False):
     """Implement nested cross-validation to (1) use grid search of all
     combinatorial possibilities for given hyperparameters and layer architecture
     to tune artificial neural net model, and (2) generate trained model using

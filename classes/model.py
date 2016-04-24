@@ -227,7 +227,7 @@ Current cross-val accuracies: {}
             for tvar in tf.trainable_variables():
                 tf.assign(tvar, tvar.eval(), name = match(tvar.name).group(0))
 
-    def kFoldTrain(self, data, k = 10, verbose = False, num_cores = None, seed = None):
+    def kFoldTrain(self, data, k = 10, verbose = False, num_cores = 0, seed = None):
         """Train model using k-fold cross-validation of full set of training data"""
         results = {'best_cross_vals': [], # highest cross-val accuracy (per fold)
                    'best_stopping_epochs': [], # corresponding epoch (per fold)
