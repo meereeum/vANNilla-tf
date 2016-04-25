@@ -1,5 +1,6 @@
 assignment
 .ipynb_checkpoints
+*.ipynb
 *.pyc
 *.csv
 performance.txt
