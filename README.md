@@ -31,7 +31,7 @@ $ python test.py
 ```
 
 ## Under the hood
-By default, input features are Gaussian-normalized based on mean & stdev of train set.
+By default, input categorical features are encoded as one-hots (in N dimensions, unless N-1 specified to avoid collinearity), and input quantitative features are Gaussian-normalized based on mean & stdev of train set.
 
 Training runs in two modes. If config is flagged as:
 
