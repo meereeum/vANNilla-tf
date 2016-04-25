@@ -17,7 +17,7 @@ class DataIO:
         self.regex = {'features': '^[^({})]'.format(target_label),
                       'targets': '^{}'.format(target_label)}
 
-        self.df = self.normalizeXs(df, norm_fn) if norm_fn else df
+        self.df = self.processXs(df, norm_fn)
         self.df = self.encodeYs(target_label)
         if clip_to:
             # don't touch encoded one-hots
@@ -49,13 +49,21 @@ class DataIO:
         return tuple(df.filter(regex = self.regex[k])
                      for k in ('features', 'targets'))
 
-    def normalizeXs(self, df, norm_fn):
-        """Normalize features by given function"""
+    def processXs(self, df, norm_fn = None):
+        """Enocde categorical features and, optionally, normalize quantitative
+        features by given function"""
         xs, ys = self.splitXY(df)
+        # encode categorical features
+        xs = self.encodeCategoricals(xs)
         # only normalize non-binary df columns
         bin_cols = xs.apply(DataIO.isBinary, axis=0)
-        xs.loc[:, ~bin_cols] = norm_fn(xs.loc[:, ~bin_cols])
+        if norm_fn:
+            xs.loc[:, ~bin_cols] = norm_fn(xs.loc[:, ~bin_cols])
         return pd.concat([xs, ys], axis=1)
+
+    def encodeCategoricals(self, df):
+        """Encode all categorical columns in df (dtype `Object`) as one-hots"""
+        return pd.get_dummies(df, columns = df.loc[:, df.dtypes == 'O'])
 
     def encodeYs(self, target_str):
         """Encode categorical values (labeled with given target_str) as one-hots
