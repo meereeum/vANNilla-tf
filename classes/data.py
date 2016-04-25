@@ -38,6 +38,11 @@ class DataIO:
         _, y = self.splitXY()
         return y.shape[1]
 
+    @staticmethod
+    def isBinary(col):
+        #return np.product([x in {0, 1} for x in col.values])
+        return sum(x not in {0,1} for x in col.values) == 0
+
     def splitXY(self, df = None):
         """Split given DataFrame into DataFrames representing features & targets"""
         df = df if isinstance(df, pd.DataFrame) else self.df # <-- default
@@ -47,7 +52,10 @@ class DataIO:
     def normalizeXs(self, df, norm_fn):
         """Normalize features by given function"""
         xs, ys = self.splitXY(df)
-        return pd.concat([norm_fn(xs), ys], axis=1)
+        # only normalize non-binary df columns
+        bin_cols = xs.apply(DataIO.isBinary, axis=0)
+        xs.loc[:, ~bin_cols] = norm_fn(xs.loc[:, ~bin_cols])
+        return pd.concat([xs, ys], axis=1)
 
     def encodeYs(self, target_str):
         """Encode categorical values (labeled with given target_str) as one-hots
