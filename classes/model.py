@@ -64,13 +64,19 @@ class Model():
     def _buildGraph(self):
         """Build TensorFlow graph representing neural net with desired architecture +
         training ops for feed-forward and back-prop to minimize cost function"""
+
+        def print_(var, name, first_n = 3, summarize = 5):
+            """Util for debugging by printing values during training"""
+            # tf.Print is identity fn with side effect of printing requested [vals]
+            return tf.Print(var, [var], '{}: '.format(name), first_n=first_n,
+                            summarize=summarize)
+
         x_in = tf.placeholder(tf.float32, shape=[None, # None dim enables variable batch size
                                                  self.layers[0].nodes], name='x')
         xs = [x_in]
 
         def wbVars(nodes_in, nodes_out, scope):
             """Helper to initialize trainable weights & biases"""
-            #with tf.name_scope(scope):
             initial_w = tf.truncated_normal([nodes_in, nodes_out],
                                             #stddev = (2/nodes_in)**0.5)
                                             stddev = nodes_in**-0.5, name =
@@ -94,14 +100,7 @@ class Model():
                 # add dropout to hidden but not input weights
                 if i > 0:
                     w = tf.nn.dropout(w, dropout)
-                w = tf.Print(w, [w], "weight: ", first_n = 5)
-                b = tf.Print(b, [b], "bias: ", first_n = 5)
-                xs[i] = tf.Print(xs[i], [xs[i]], "x thing: ", first_n = 5)
-                foo = tf.matmul(xs[i], w)
-                #foo = tf.nn.xw_plus_b(xs[i], w, b)
-                foo = tf.Print(foo, [foo], "next x: ", first_n = 5)
-                xs.append(layer.activation(foo))
-                #xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w, b)))
+                xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w, b)))
 
         # use identity to set explicit name for output node
         y_out = tf.identity(xs[-1], name='y_out')
