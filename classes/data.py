@@ -20,12 +20,28 @@ class DataIO:
         self.regex = {'features': '^[^({})]'.format(target_label),
                       'targets': '^{}'.format(target_label)}
 
-        self.df = self.processXs(df, norm_fn, encode_n_minus_1)
-        self.df = self.encodeYs(target_label)
+        if encode_n_minus_1:
+            xs, ys = self.splitXY(df)
+            xs = DataIO.encodeCategoricals(xs, encode_n_minus_1)
+            ys = DataIO.encodeCategoricals(ys)
+            self.df = pd.concat([xs, ys], axis=1)
+        else:
+            self.df = DataIO.encodeCategoricals(df)
+
+        # enable unlabeled test data - but don't fail silently
+        if self.n_targets == 0:
+            print """
+Warning: categorical values not encoded...no targets labeled `{}`
+""".format(target_label)
+
+        if norm_fn:
+            self.df = self.normalizeXs(df, norm_fn)
         if clip_to:
             # don't touch encoded one-hots
             assert sum(abs(x) > 1 for x in clip_to)
             self.df = self.df.clip(*clip_to)
+
+        import code; code.interact(local=locals())
 
     @property
     def len_(self):
@@ -52,37 +68,47 @@ class DataIO:
         return tuple(df.filter(regex = self.regex[k])
                      for k in ('features', 'targets'))
 
-    def processXs(self, df, norm_fn = None, encode_n_minus_1 = False):
+    def normalizeXs(self, df, norm_fn):
         """Encode categorical features and, optionally, normalize quantitative
         features by given function"""
         xs, ys = self.splitXY(df)
-        xs = self.encodeCategoricals(xs, encode_n_minus_1)
         # only normalize non-binary df columns
         bin_cols = xs.apply(DataIO.isBinary, axis=0)
-        if norm_fn:
-            xs.loc[:, ~bin_cols] = norm_fn(xs.loc[:, ~bin_cols])
+        xs.loc[:, ~bin_cols] = norm_fn(xs.loc[:, ~bin_cols])
         return pd.concat([xs, ys], axis=1)
 
-    def encodeCategoricals(self, df, encode_n_minus_1 = False):
+    #def processXs(self, df, norm_fn = None, encode_n_minus_1 = False):
+        #"""Encode categorical features and, optionally, normalize quantitative
+        #features by given function"""
+        #xs, ys = self.splitXY(df)
+        #xs = DataIO.encodeCategoricals(xs, encode_n_minus_1)
+        ## only normalize non-binary df columns
+        #if norm_fn:
+            #bin_cols = xs.apply(DataIO.isBinary, axis=0)
+            #xs.loc[:, ~bin_cols] = norm_fn(xs.loc[:, ~bin_cols])
+        #return pd.concat([xs, ys], axis=1)
+
+    @staticmethod
+    def encodeCategoricals(df, encode_n_minus_1 = False):
         """Encode all categorical columns in df (dtype `Object`) as one-hots
         of dimension N (or N-1, if encode_n_minus_1 is True)"""
         return pd.get_dummies(df, columns = df.loc[:, df.dtypes == 'O'],
                               drop_first = encode_n_minus_1)
 
-    def encodeYs(self, target_str):
-        """Encode categorical values (labeled with given target_str) as one-hots
-
-        Returns: dataframe including binary {0, 1} columns for unique labels
-        """
-        try:
-            encoded = pd.get_dummies(self.df, columns=[target_str])
-        except(ValueError):
-            # ignore unlabeled test data - but don't fail silently
-            print """
-Warning: categorical values not encoded...no targets labeled `{}`
-""".format(target_str)
-            encoded = self.df
-        return encoded
+    #def encodeYs(self, target_str):
+        #"""Encode categorical values (labeled with given target_str) as one-hots
+#
+        #Returns: dataframe including binary {0, 1} columns for unique labels
+        #"""
+        #try:
+            #encoded = pd.get_dummies(self.df, columns=[target_str])
+        #except(ValueError):
+            ## ignore unlabeled test data - but don't fail silently
+            #print """
+#Warning: categorical values not encoded...no targets labeled `{}`
+#""".format(target_str)
+            #encoded = self.df
+        #return encoded
 
     def kFoldCrossVal(self, k):
         """Generate chunks of data suitable for k-fold cross-validation; i.e.
