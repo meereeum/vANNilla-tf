@@ -6,18 +6,21 @@ import numpy as np
 
 
 class DataIO:
-    def __init__(self, df, target_label, norm_fn = None, clip_to = None):
+    def __init__(self, df, target_label, norm_fn = None, clip_to = None,
+                 encode_n_minus_1 = False):
         """Data class with functions for preprocessing and streaming
 
         Args: df (pandas DataFrame)
               target_label (string)
               norm_fn (function) - optional function for features normalization
               clip_to (iterable) - optional 2-tuple of max/min values for clipping
+              encode_n_minus_1 (bool) - encode categorical features to (N-1)-dim,
+                rather than N-dim, one-hots (to avoid collinearity)
         """
         self.regex = {'features': '^[^({})]'.format(target_label),
                       'targets': '^{}'.format(target_label)}
 
-        self.df = self.processXs(df, norm_fn)
+        self.df = self.processXs(df, norm_fn, encode_n_minus_1)
         self.df = self.encodeYs(target_label)
         if clip_to:
             # don't touch encoded one-hots
@@ -49,21 +52,22 @@ class DataIO:
         return tuple(df.filter(regex = self.regex[k])
                      for k in ('features', 'targets'))
 
-    def processXs(self, df, norm_fn = None):
-        """Enocde categorical features and, optionally, normalize quantitative
+    def processXs(self, df, norm_fn = None, encode_n_minus_1 = False):
+        """Encode categorical features and, optionally, normalize quantitative
         features by given function"""
         xs, ys = self.splitXY(df)
-        # encode categorical features
-        xs = self.encodeCategoricals(xs)
+        xs = self.encodeCategoricals(xs, encode_n_minus_1)
         # only normalize non-binary df columns
         bin_cols = xs.apply(DataIO.isBinary, axis=0)
         if norm_fn:
             xs.loc[:, ~bin_cols] = norm_fn(xs.loc[:, ~bin_cols])
         return pd.concat([xs, ys], axis=1)
 
-    def encodeCategoricals(self, df):
-        """Encode all categorical columns in df (dtype `Object`) as one-hots"""
-        return pd.get_dummies(df, columns = df.loc[:, df.dtypes == 'O'])
+    def encodeCategoricals(self, df, encode_n_minus_1 = False):
+        """Encode all categorical columns in df (dtype `Object`) as one-hots
+        of dimension N (or N-1, if encode_n_minus_1 is True)"""
+        return pd.get_dummies(df, columns = df.loc[:, df.dtypes == 'O'],
+                              drop_first = encode_n_minus_1)
 
     def encodeYs(self, target_str):
         """Encode categorical values (labeled with given target_str) as one-hots
@@ -73,7 +77,7 @@ class DataIO:
         try:
             encoded = pd.get_dummies(self.df, columns=[target_str])
         except(ValueError):
-            # ignore test data with no targets - but don't fail silently
+            # ignore unlabeled test data - but don't fail silently
             print """
 Warning: categorical values not encoded...no targets labeled `{}`
 """.format(target_str)
