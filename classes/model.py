@@ -94,11 +94,19 @@ class Model():
                 # add dropout to hidden but not input weights
                 if i > 0:
                     w = tf.nn.dropout(w, dropout)
-                xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w, b)))
+                w = tf.Print(w, [w], "weight: ", first_n = 5)
+                b = tf.Print(b, [b], "bias: ", first_n = 5)
+                xs[i] = tf.Print(xs[i], [xs[i]], "x thing: ", first_n = 5)
+                foo = tf.matmul(xs[i], w)
+                #foo = tf.nn.xw_plus_b(xs[i], w, b)
+                foo = tf.Print(foo, [foo], "next x: ", first_n = 5)
+                xs.append(layer.activation(foo))
+                #xs.append(layer.activation(tf.nn.xw_plus_b(xs[i], w, b)))
 
         # use identity to set explicit name for output node
         y_out = tf.identity(xs[-1], name='y_out')
-        y = tf.placeholder(tf.float32, shape=[None, 2], name='y')
+        y = tf.placeholder(tf.float32, shape=[None, self.layers[-1].nodes],
+                           name='y')
 
         # cost & training
         with tf.name_scope('l2_regularization'):

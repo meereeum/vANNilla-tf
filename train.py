@@ -20,7 +20,7 @@ def preprocess(file_in, target_label, outfiles):
     # record categorical targets for decoding test set
     targets = list(pd.get_dummies(df[target_label]))
     with open(outfiles['targets'], 'w') as f:
-        f.write(','.join(targets))
+        f.write(','.join(map(str, targets)))
 
     # nested validation
     train, validate = splitTrainValidate(df, perc_training=0.8)
@@ -113,4 +113,5 @@ if __name__ == '__main__':
                                    num_cores = config.NUM_CORES,
                                    verbose = config.VERBOSE)
         except(AttributeError):
-            raise('Must supply valid config for Model training')
+            print 'Must supply valid config for Model training'
+            raise
