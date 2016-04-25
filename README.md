@@ -19,7 +19,7 @@ $ pip install requirements.txt
 
 (3) Train and save best model, while logging performance
 
-<sup> Input data must be CSV, with quantitative features and qualitative feature labels.</sup>
+<sup> Input data must be CSV, with quantitative and/or qualitative features and qualitative labels.</sup>
 
 ```
 $ python train.py
