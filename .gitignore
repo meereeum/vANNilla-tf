@@ -4,6 +4,7 @@ assignment
 *.pyc
 *.csv
 performance.txt
+predictions.txt
 log
 graph_def.bin
 .#*
