@@ -25,9 +25,13 @@ def preprocess(file_in, target_label, outfiles):
     # nested validation
     train, validate = splitTrainValidate(df, perc_training=0.8)
 
-    # extract raw features mean, stddev from train set to use for all preprocessing
+    # extract raw quantitative features mean, stddev from train set
+    # to use for all preprocessing
     raw_features, _ = DataIO(train, target_label).splitXY()
-    params = (raw_features.mean(axis=0), raw_features.std(axis=0))
+    bin_cols = raw_features.apply(DataIO.isBinary, axis=0)
+    quantitative = raw_features.loc[:, ~bin_cols]
+
+    params = (quantitative.mean(axis=0), quantitative.std(axis=0))
     for k, param in zip(('preprocessing_means', 'preprocessing_stddevs'), params):
          with open(outfiles[k], 'w') as f:
              param.to_csv(f)
