@@ -51,7 +51,8 @@ class DataIO:
         """Encode categorical features and, optionally, normalize quantitative
         features by given function"""
         xs, ys = self.splitXY(df)
-        xs = DataIO.encodeCategoricals(xs, encode_n_minus_1)
+        # encode categorical
+        xs = pd.get_dummies(xs, drop_first = encode_n_minus_1)
         # only normalize non-binary df columns
         if norm_fn:
             bin_cols = xs.apply(DataIO.isBinary, axis=0)
@@ -119,13 +120,6 @@ Warning: categorical values not encoded...no targets labeled `{}`
     def isBinary(col):
         #return np.product([x in {0, 1} for x in col.values])
         return sum(x not in {0,1} for x in col.values) == 0
-
-    @staticmethod
-    def encodeCategoricals(df, encode_n_minus_1 = False):
-        """Encode all categorical columns in df (dtype `Object`) as one-hots
-        of dimension N (or N-1, if encode_n_minus_1 is True)"""
-        return pd.get_dummies(df, columns = df.loc[:, df.dtypes == 'O'],
-                              drop_first = encode_n_minus_1)
 
     @staticmethod
     def gaussianNorm(df, mean = None, std = None):
