@@ -12,11 +12,11 @@ class BaseConfig():
     OUTFILES = {'targets': './targets.csv',
                 'preprocessing_means': './preprocessing_means.csv',
                 'preprocessing_stddevs': './preprocessing_stddevs.csv',
-                #'model_params': './model_training_params.txt',
                 'graph_def': './graph_def.bin',
                 'performance': './performance.txt',
                 'predictions': './predictions.txt'}
 
+    # defaults to random (non-persistent) seed if None
     SEED = 47
 
     # defaults to all detected if 0
