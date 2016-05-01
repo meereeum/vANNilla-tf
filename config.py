@@ -43,7 +43,7 @@ HYPERPARAM_GRID = {'learning_rate': [0.05, 0.01, 0.1],
                    # keep probability for dropout (1 for none)
                    'dropout': [0.5, 0.7, 1],
                    # lambda for L2 regularization (0 for none)
-                   'lambda_l2_reg': [1E-5, 1E-4, 1E-3, 0],
+                   'lambda_l2_reg': [0, 1E-5, 1E-4, 1E-3],
                    'n_minibatch': [100],
                    'epochs': [100]}
 
